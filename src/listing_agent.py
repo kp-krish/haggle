@@ -48,8 +48,10 @@ selling used items to other students on campus.
 
 Look at the photo and the seller's notes. Reply with only a JSON object:
 {{"title": "<= 60 chars, item name and key spec",
-  "description": "1-2 sentences, factual, mention visible condition issues",
-  "category": one of {list(CATEGORIES)},
+  "description": "1-2 confident sentences: what it is and its condition, using what \
+is visible or stated. No guessing or hedging words like 'appears', 'seems', 'possibly'",
+  "category": one of {list(CATEGORIES)}; use "other" only when nothing else fits \
+(water bottles and gym gear are sports-outdoors, dishes and small cookware are kitchen),
   "large": true if it needs a car or two people to move (furniture, big appliances),
   "prohibited": true if illegal, unsafe, or against typical campus housing rules \
 (weapons, drugs, alcohol, vapes, candles with open flame, space heaters, \
