@@ -15,7 +15,7 @@ import io
 import logging
 import os
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import cache
 
 import boto3
@@ -79,8 +79,11 @@ def parse_windows(text: str, now: datetime | None = None) -> list[dict]:
     if not text.strip():
         return []
     now = (now or datetime.now(CAMPUS_TZ)).astimezone(CAMPUS_TZ)
+    days = "\n".join(f"{now + timedelta(days=i):%A %Y-%m-%d}" for i in range(8))
     prompt = (
         f"Now: {now:%A %Y-%m-%d %H:%M} (campus time).\n"
+        f"Calendar for the next week:\n{days}\n"
+        "Weekdays are Monday-Friday only; Saturday and Sunday are the weekend.\n"
         f"<availability>{text.replace('<', '').replace('>', '')}</availability>"
     )
     try:
