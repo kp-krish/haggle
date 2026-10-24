@@ -67,6 +67,9 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /interactions
             Method: POST
+      Environment:
+        Variables:
+          WORKER_FUNCTION: !Ref ListingAgentFunction
       Policies:
         - Statement:
             - Effect: Allow
@@ -80,6 +83,50 @@ Resources:
         - DynamoDBCrudPolicy: { TableName: !Ref ListingsTable }
         - DynamoDBCrudPolicy: { TableName: !Ref WantsTable }
         - DynamoDBReadPolicy: { TableName: !Ref DealsTable }
+        - LambdaInvokePolicy: { FunctionName: !Ref ListingAgentFunction }
+
+  # Slow work behind deferred replies: photo, Bedrock, posting. No KMS access at all.
+  ListingAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: listing_agent.handler
+      Description: Writes listings from photos, classifies wants, publishes
+      MemorySize: 1024
+      Timeout: 60
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Ref DiscordSecret
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource:
+                - arn:aws:bedrock:*::foundation-model/*
+                - !Sub arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*
+        - DynamoDBCrudPolicy: { TableName: !Ref UsersTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ListingsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref WantsTable }
+        - S3CrudPolicy: { BucketName: !Ref PhotosBucket }
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
+
+  ListingAgentErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Listing agent is erroring
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ListingAgentFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
 
   InteractionsErrorsAlarm:
     Type: AWS::CloudWatch::Alarm

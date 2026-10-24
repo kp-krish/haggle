@@ -71,6 +71,11 @@ def decrypt_limit(ciphertext: bytes, record: str, owner_id: str) -> int:
     return int(resp["Plaintext"].decode())
 
 
+def conditional_failed() -> type[Exception]:
+    """The exception DynamoDB raises when a ConditionExpression is not met."""
+    return _dynamodb().meta.client.exceptions.ConditionalCheckFailedException
+
+
 @cache
 def discord_secret() -> dict[str, str]:
     """``{"app_id", "public_key", "bot_token", "guild_id", "listings_channel_id"}``."""
