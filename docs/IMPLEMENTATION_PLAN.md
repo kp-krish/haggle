@@ -11,24 +11,24 @@ phase ends with something runnable and tested, and is committed separately.
   only in the negotiator Lambda for the owning side. The other side's limit never enters a
   prompt, a log line, a Step Functions payload, or a Discord message.
 - **Every commitment waits for a person** (publish, start haggling, confirm deal, done).
-- Region **us-west-2**, pinned in `samconfig.toml` (CLI default is us-east-2, so never rely
-  on it).
+- Region **us-east-2**, pinned in `samconfig.toml`. The spec says us-west-2, but the AWS
+  organization's SCP denies every region except us-east-2.
 
 ## Environment (verified 2026-10-24)
 
 | Item | State |
 |---|---|
 | AWS | account `908494155046`, IAM user `heatcheck-dev` |
-| Bedrock (us-west-2) | `us.anthropic.claude-haiku-5-5` available (text + images) |
+| Bedrock (us-east-2) | `us.anthropic.claude-haiku-4-5-20251001-v1:0` callable (text + images); Haiku 5.5 / Sonnet 5.5 not enabled on this account |
 | GitHub | `gh` logged in as `kp-krish` |
 | Tooling | SAM CLI 1.170, Docker 29, Python 3.13 local |
-| Lambda runtime | Python 3.12 per spec; built with `sam build --use-container` so PyNaCl gets Linux wheels |
+| Lambda runtime | Python 3.12 per spec; third-party deps in a shared layer built by `scripts/build_layer.py` (Linux wheels via pip, no Docker) |
 
 ## Key decisions
 
 | Decision | Choice | Reason |
 |---|---|---|
-| Models | Haiku 5.5 for negotiator messages **and** listing (multimodal) | One model, cheap, fast; swap listing to Sonnet 5.5 via env var if quality is short |
+| Models | Haiku 4.5 for negotiator messages **and** listing (multimodal) | One model, cheap, fast; `TextModelId` / `VisionModelId` parameters to swap |
 | Signature check | PyNaCl (Ed25519) | Standard for Discord interactions |
 | Deps | `boto3` (in runtime), `pynacl`, `requests`/`urllib3` | Keep Lambda packages small |
 | Offer timeout | 2 h (env var), 2 timeouts closes deal | Per spec |
@@ -61,12 +61,12 @@ phase ends with something runnable and tested, and is committed separately.
 
 ### Phase 2 — Infrastructure skeleton (SAM)
 - `template.yaml`: HTTP API, interactions Lambda, 6 DynamoDB tables (on demand) with GSIs
-  `Listings.by_category`, `Wants.by_category`, `Deals.by_user`, Streams on Listings/Wants,
+  `Listings.by_category`, `Wants.by_category`, `Deals.by_seller` + `Deals.by_buyer` (a deal has two users, so "by user" is one index per side), Streams on Listings/Wants,
   TTL on Offers, S3 photo bucket (lifecycle rule), KMS key, Secrets Manager secret for
   bot token + public key, least-privilege roles per function, CloudWatch alarms, AWS
   Budget ($10 / $25).
 - `store.py`: table access + KMS encrypt/decrypt helpers.
-- `samconfig.toml` pinned to us-west-2.
+- `samconfig.toml` pinned to us-east-2.
 - **Done when:** `sam build --use-container && sam deploy` succeeds and the stack is empty
   but healthy.
 

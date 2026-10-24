@@ -8,6 +8,7 @@ __pycache__/
 
 # SAM
 .aws-sam/
+.layers/
 
 # Secrets — never commit
 .env
