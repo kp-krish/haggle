@@ -1,0 +1,60 @@
+{
+  "campus": "ASU Tempe",
+  "utc_offset_hours": -7,
+  "_note": "Coordinates are approximate; verify each spot before launch.",
+  "areas": {
+    "north": { "lat": 33.4225, "lng": -111.9350 },
+    "central": { "lat": 33.4180, "lng": -111.9340 },
+    "south": { "lat": 33.4135, "lng": -111.9290 }
+  },
+  "places": [
+    {
+      "place_id": "mu-north",
+      "name": "Memorial Union north entrance",
+      "area": "central",
+      "lat": 33.4180,
+      "lng": -111.9346,
+      "curbside": false
+    },
+    {
+      "place_id": "hayden-north",
+      "name": "Hayden Library north entrance",
+      "area": "north",
+      "lat": 33.4196,
+      "lng": -111.9361,
+      "curbside": false
+    },
+    {
+      "place_id": "sdfc-front",
+      "name": "Sun Devil Fitness Complex front desk",
+      "area": "central",
+      "lat": 33.4165,
+      "lng": -111.9318,
+      "curbside": true
+    },
+    {
+      "place_id": "barrett-courtyard",
+      "name": "Barrett Honors College main courtyard",
+      "area": "south",
+      "lat": 33.4140,
+      "lng": -111.9268,
+      "curbside": false
+    },
+    {
+      "place_id": "vds-clubhouse",
+      "name": "Vista del Sol clubhouse",
+      "area": "south",
+      "lat": 33.4130,
+      "lng": -111.9290,
+      "curbside": true
+    },
+    {
+      "place_id": "rural-ps",
+      "name": "Rural Road parking structure, ground level",
+      "area": "north",
+      "lat": 33.4205,
+      "lng": -111.9265,
+      "curbside": true
+    }
+  ]
+}
