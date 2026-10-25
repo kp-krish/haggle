@@ -10,6 +10,7 @@ the move, let the model word it, check the words with guard.py, record and mirro
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import os
@@ -33,6 +34,7 @@ LABEL = {"seller": "Seller's agent", "buyer": "Buyer's agent"}
 # When rounds run out, the buyer is asked about the seller's final offer if it is within
 # 25% (or $5) of their max; further apart than that isn't worth a question.
 FINAL_ASK_FRACTION = 0.25
+HOLD_BACK_MIN, HOLD_BACK_MAX = 0.05, 0.20
 FINAL_ASK_MIN_DOLLARS = 5
 # Every reply has the same keys; the state machine's ResultSelector needs them all.
 STOPPED = {"action": "stopped", "price": None, "next": None}
@@ -49,9 +51,18 @@ ACTION_BRIEF = {
     "mention no numbers at all",
 }
 
+ROLE_LINE = {
+    "seller": "Your student owns the item and is SELLING it. Any price you name is what "
+    "your student is asking to be paid. Never say your student wants to buy it or will "
+    "'offer' to pay for it.",
+    "buyer": "Your student wants to BUY the item. Any price you name is what your student "
+    "offers to pay.",
+}
+
 SYSTEM = """You are the {role}'s agent in a negotiation between two college students \
-over a used item on a campus marketplace. Write ONE short chat message (at most two \
-sentences) that {brief}.
+over a used item on a campus marketplace. {role_line}
+
+Write ONE short chat message (at most two sentences) that {brief}.
 
 Rules:
 - The only dollar amount you may write is {allowed}. Write no other prices or numbers \
@@ -73,19 +84,35 @@ def _side() -> str:
     return side
 
 
+def hold_back_for(ciphertext: bytes, deal_id: str) -> float:
+    """This side's hidden reserve for this deal: 5-20% of its concession range.
+
+    Derived from the side's own encrypted limit, which the other side never sees, so it
+    can't be recomputed from outside to work back from the final offer to the limit.
+    Stable across turns, so offers stay monotonic.
+    """
+    digest = hashlib.sha256(bytes(ciphertext) + deal_id.encode()).digest()
+    unit = int.from_bytes(digest[:4], "big") / 2**32
+    return HOLD_BACK_MIN + (HOLD_BACK_MAX - HOLD_BACK_MIN) * unit
+
+
 def load_side(deal: dict, side: str) -> Side:
     """This side's private view: its own record and its own decrypted limit only."""
     if side == "seller":
         item = store.table("listings").get_item(Key={"listing_id": deal["listing_id"]})["Item"]
-        limit = store.decrypt_limit(
-            item["floor_enc"].value, f"listing#{item['listing_id']}", item["seller_id"]
-        )
+        ciphertext = item["floor_enc"].value
+        limit = store.decrypt_limit(ciphertext, f"listing#{item['listing_id']}", item["seller_id"])
     else:
         item = store.table("wants").get_item(Key={"want_id": deal["want_id"]})["Item"]
-        limit = store.decrypt_limit(
-            item["ceiling_enc"].value, f"want#{item['want_id']}", item["buyer_id"]
-        )
-    return Side(side, int(deal["asking"]), limit, item.get("style", "balanced"))
+        ciphertext = item["ceiling_enc"].value
+        limit = store.decrypt_limit(ciphertext, f"want#{item['want_id']}", item["buyer_id"])
+    return Side(
+        side,
+        int(deal["asking"]),
+        limit,
+        item.get("style", "balanced"),
+        hold_back_for(ciphertext, deal["deal_id"]),
+    )
 
 
 def write_message(deal: dict, side: str, style: str, action: str, amount: int | None) -> str:
@@ -93,6 +120,7 @@ def write_message(deal: dict, side: str, style: str, action: str, amount: int | 
     other = "buyer" if side == "seller" else "seller"
     system = SYSTEM.format(
         role=side,
+        role_line=ROLE_LINE[side],
         brief=ACTION_BRIEF[action].format(amount=amount),
         allowed=f"${amount}" if action in ("offer", "accept") else "none",
         tone=TONE.get(style, TONE["balanced"]),

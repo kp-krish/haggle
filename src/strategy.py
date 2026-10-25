@@ -39,6 +39,10 @@ class Side:
     asking: int
     limit: int
     style: str = "balanced"
+    # Fraction of the concession range the agent keeps in reserve: its offers stop
+    # short of the limit by this much, so the final offer doesn't reveal the limit.
+    # It still accepts anything within the real limit in the final rounds.
+    hold_back: float = 0.0
 
     def __post_init__(self) -> None:
         if self.role not in ("seller", "buyer"):
@@ -49,6 +53,8 @@ class Side:
             raise ValueError("prices must be positive whole dollars")
         if self.role == "seller" and self.limit > self.asking:
             raise ValueError("floor cannot be above the asking price")
+        if not 0 <= self.hold_back <= 0.5:
+            raise ValueError("hold_back must be between 0 and 0.5")
 
 
 @dataclass(frozen=True)
@@ -62,6 +68,25 @@ def opening_offer(asking: int, ceiling: int) -> int:
     return max(1, min(math.floor(OPENING_FRACTION * asking), ceiling))
 
 
+def reserve_dollars(hold_back: float, concession_range: int) -> int:
+    """Whole dollars held back from a range. At least $1 when holding back at all, and
+    never more than half the range, so the agent still concedes."""
+    if hold_back <= 0 or concession_range < 2:
+        return 0
+    return min(concession_range // 2, max(1, round(hold_back * concession_range)))
+
+
+def offer_target(side: Side) -> int:
+    """Where this side's offers end up at the last round: its limit, minus the reserve."""
+    if side.role == "seller":
+        return side.limit + reserve_dollars(side.hold_back, side.asking - side.limit)
+    base = math.floor(OPENING_FRACTION * side.asking)
+    # If the ceiling is below 60% of asking, hold back from the ceiling itself, so the
+    # opening offer isn't the ceiling either.
+    span = max(side.limit - base, math.ceil(0.2 * side.limit))
+    return max(1, side.limit - reserve_dollars(side.hold_back, span))
+
+
 def planned_offer(side: Side, t: int) -> int:
     """The offer this side plans to make at round ``t`` (0..T), in whole dollars.
 
@@ -69,21 +94,25 @@ def planned_offer(side: Side, t: int) -> int:
     """
     t = min(max(t, 0), ROUNDS)
     progress = (t / ROUNDS) ** (1 / STYLE_BETA[side.style])
+    target = offer_target(side)
     if side.role == "seller":
-        raw = side.asking - (side.asking - side.limit) * progress
-        return max(side.limit, math.ceil(raw - 1e-9))
-    start = opening_offer(side.asking, side.limit)
-    raw = start + (side.limit - start) * progress
-    return min(side.limit, math.floor(raw + 1e-9))
+        raw = side.asking - (side.asking - target) * progress
+        return max(target, math.ceil(raw - 1e-9))
+    start = opening_offer(side.asking, target)
+    raw = start + (target - start) * progress
+    return min(target, math.floor(raw + 1e-9))
 
 
 def should_accept(side: Side, t: int, their_offer: int) -> bool:
     """Accept when the other side's offer is at least as good as our own next planned
-    offer and within our limit."""
+    offer and within our limit. In the final rounds, anything within the limit."""
+    within = their_offer >= side.limit if side.role == "seller" else their_offer <= side.limit
+    if not within:
+        return False
+    if t >= ROUNDS:
+        return True
     planned = planned_offer(side, t)
-    if side.role == "seller":
-        return their_offer >= planned and their_offer >= side.limit
-    return their_offer <= planned and their_offer <= side.limit
+    return their_offer >= planned if side.role == "seller" else their_offer <= planned
 
 
 def next_move(
@@ -136,11 +165,13 @@ def simulate(
     ceiling: int,
     seller_style: str = "balanced",
     buyer_style: str = "balanced",
+    seller_hold: float = 0.0,
+    buyer_hold: float = 0.0,
 ) -> Result:
     """Replay a whole negotiation with both sides' limits. For tests and local runs only;
     production never holds both limits in one place."""
-    seller = Side("seller", asking, floor, seller_style)
-    buyer = Side("buyer", asking, ceiling, buyer_style)
+    seller = Side("seller", asking, floor, seller_style, seller_hold)
+    buyer = Side("buyer", asking, ceiling, buyer_style, buyer_hold)
     result = Result(price=None, turns=[Turn("seller", 0, "offer", asking)])
     last = {"seller": asking, "buyer": None}
 
@@ -169,9 +200,19 @@ def _main() -> None:
     parser.add_argument("--ceiling", type=int, required=True)
     parser.add_argument("--seller-style", default="balanced", choices=STYLE_BETA)
     parser.add_argument("--buyer-style", default="balanced", choices=STYLE_BETA)
+    parser.add_argument("--seller-hold", type=float, default=0.1)
+    parser.add_argument("--buyer-hold", type=float, default=0.1)
     args = parser.parse_args()
 
-    result = simulate(args.asking, args.floor, args.ceiling, args.seller_style, args.buyer_style)
+    result = simulate(
+        args.asking,
+        args.floor,
+        args.ceiling,
+        args.seller_style,
+        args.buyer_style,
+        args.seller_hold,
+        args.buyer_hold,
+    )
     for turn in result.turns:
         label = "Seller's agent" if turn.role == "seller" else "Buyer's agent"
         detail = f"${turn.amount}" if turn.amount is not None else ""

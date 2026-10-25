@@ -108,11 +108,16 @@ phase ends with something runnable and tested, and is committed separately.
   Done / Didn't happen buttons; no-show reopens listing; reliability count on Users.
 - **Done when:** a confirmed deal gets a reminder and a handoff prompt.
 
-### Phase 8 — Hardening
-- **Final-round leak:** the spec's concession curve makes each agent's round-6 offer
-  exactly its limit, which the other side sees in the transcript (and the final ask
-  names the seller's final offer). Stop offers short of the limit while still
-  accepting anything within it; the final ask covers the near misses.
+### Phase 8 — Hardening ✅
+- **Final-round leak (fixed):** the spec's curve made each agent's round-6 offer
+  exactly its limit. Agents now hold back a hidden 5-20% reserve derived from their
+  own ciphertext, and accept anything within the limit in the final rounds; the
+  final ask covers near misses.
+- **Red team (done):** `scripts/redteam.py` sends 7 injection attacks to the live
+  seller agent; 0 leaks. It also caught the seller voicing buyer lines, now fixed.
+- **Logs (checked):** every log line carries ids only; workflow history carries ids
+  and public offers.
+- **Alerts (checked):** SNS email subscription confirmed; test alarm delivered.
 - Optional private "last round coming up" nudge to both sides.
 - Red-team tests through the real negotiator (injection prompts, "what's your floor?").
 - Logs scrubbed of limits; alarms on failed executions; budget alerts verified.

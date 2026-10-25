@@ -214,13 +214,13 @@ def test_confirm_flow_reveals_identities_only_at_the_end(dms, monkeypatch):
     price = agree(setup_deal(), monkeypatch)
     deals.request_confirm("deal_1", "seller", "tok-s")
     deals.request_confirm("deal_1", "buyer", "tok-b")
-    assert not any(f"<@{BUYER}>" in t or f"<@{SELLER}>" in t for _, t in sent(dm))
+    assert not any("The buyer is" in t or "The seller is" in t for _, t in sent(dm))
 
     assert deals.finalize("deal_1") == {"result": "confirmed"}
     assert store.table("listings").get_item(Key={"listing_id": "lst_1"})["Item"]["status"] == "sold"
     assert store.table("wants").get_item(Key={"want_id": "wnt_1"})["Item"]["status"] == "fulfilled"
     final = dict(sent(dm)[-2:])
-    assert f"<@{BUYER}>" in final[SELLER] and f"<@{SELLER}>" in final[BUYER]
+    assert "The buyer is" in final[SELLER] and "The seller is" in final[BUYER]
     assert f"${price}" in final[SELLER]
 
 
@@ -358,7 +358,14 @@ def test_display_name_spells_out_the_name_for_dms():
         mock.patch("notify._request", return_value=member),
         mock.patch("store.discord_secret", return_value={"guild_id": "g1"}),
     ):
-        assert notify.display_name("42") == "**Krish** (@krish123, <@42>)"
+        assert notify.display_name("42") == "**Krish** (@krish123)"
+    # Not in the server any more: fall back to the global user.
+    calls = [RuntimeError("not a member"), {"username": "krish123", "global_name": None}]
+    with (
+        mock.patch("notify._request", side_effect=calls),
+        mock.patch("store.discord_secret", return_value={"guild_id": "g1"}),
+    ):
+        assert notify.display_name("42") == "**krish123** (@krish123)"
     with mock.patch("notify._request", side_effect=RuntimeError("discord down")):
         assert notify.display_name("42") == "<@42>"
 
@@ -379,9 +386,13 @@ def test_one_dollar_gap_ends_in_a_private_final_ask(dms, monkeypatch):
             {"action": "final_ask", "deal_id": "deal_1", "side": "buyer", "token": "tok-f"}, None
         )
     sfn.return_value.send_task_failure.assert_not_called()
+    final = int(
+        store.table("deals").get_item(Key={"deal_id": "deal_1"})["Item"]["last_offer_seller"]
+    )
+    assert final > 35  # the seller's final offer no longer gives away its floor
     user, text = sent(dm)[-1]
     assert user == BUYER
-    assert "$35" in text and "$1 more than your max of $34" in text
+    assert f"${final}" in text and f"${final - 34} more than your max of $34" in text
     assert (
         store.table("deals").get_item(Key={"deal_id": "deal_1"})["Item"]["final_token"] == "tok-f"
     )
@@ -426,13 +437,16 @@ def test_buyer_accepts_final_offer_and_both_confirm(sfn, dms, monkeypatch):
             {"action": "final_ask", "deal_id": "deal_1", "side": "buyer", "token": "tok-f"}, None
         )
     assert "expired" in press(SELLER, "final_yes:deal_1")["data"]["content"]
-    assert "Accepted $35" in press(BUYER, "final_yes:deal_1")["data"]["content"]
+    final = int(
+        store.table("deals").get_item(Key={"deal_id": "deal_1"})["Item"]["last_offer_seller"]
+    )
+    assert f"Accepted ${final}" in press(BUYER, "final_yes:deal_1")["data"]["content"]
     sfn.send_task_success.assert_called_once_with(taskToken="tok-f", output='{"accepted": true}')
 
     # The workflow then records the seller agent's own final offer as the price.
     deals.handler({"action": "agreed", "deal_id": "deal_1"}, None)
     deal = store.table("deals").get_item(Key={"deal_id": "deal_1"})["Item"]
-    assert deal["state"] == "scheduling" and deal["agreed_price"] == 35
+    assert deal["state"] == "scheduling" and deal["agreed_price"] == final
 
 
 def test_buyer_declines_final_offer(sfn, dms, monkeypatch):
@@ -446,3 +460,10 @@ def test_buyer_declines_final_offer(sfn, dms, monkeypatch):
     sfn.send_task_failure.assert_called_once_with(
         taskToken="tok-f", error="Declined", cause="buyer"
     )
+
+
+def test_reserve_is_hidden_but_stable():
+    a = negotiator.hold_back_for(b"ciphertext-1", "deal_1")
+    assert a == negotiator.hold_back_for(b"ciphertext-1", "deal_1")
+    assert negotiator.HOLD_BACK_MIN <= a <= negotiator.HOLD_BACK_MAX
+    assert a != negotiator.hold_back_for(b"ciphertext-2", "deal_1")

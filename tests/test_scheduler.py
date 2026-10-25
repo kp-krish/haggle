@@ -121,3 +121,10 @@ def test_not_before_leaves_lead_time():
     a = [Window(at(29, 15), at(29, 18))]
     assert earliest_slot(a, a, not_before=at(29, 16, 2)).start == at(29, 16, 5)
     assert earliest_slot(a, a, not_before=at(29, 17, 50)) is None
+
+
+def test_any_area_defers_to_the_other_student():
+    places = load_places()
+    assert choose_spot(places, "any", "south") == choose_spot(places, "south", "south")
+    assert choose_spot(places, "north", "any") == choose_spot(places, "north", "north")
+    assert choose_spot(places, "any", "any") == choose_spot(places, "central", "central")

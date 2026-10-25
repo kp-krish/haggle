@@ -32,7 +32,7 @@ log = logging.getLogger()
 
 PING, COMMAND, COMPONENT, AUTOCOMPLETE, MODAL_SUBMIT = 1, 2, 3, 4, 5
 
-AREAS = ("north", "central", "south")
+AREAS = ("north", "central", "south", "any")
 MAX_PRICE = 10_000
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
 OPEN_LISTING = ("preview", "open")

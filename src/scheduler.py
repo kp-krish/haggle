@@ -15,6 +15,7 @@ MIN_SLOT_MINUTES = 20
 HORIZON_DAYS = 7
 DAYLIGHT = (time(8, 0), time(19, 0))
 SLOT_STEP_MINUTES = 5
+ANY_AREA = "any"
 
 PLACES_PATH = Path(__file__).resolve().parent / "data" / "places.json"
 CAMPUS_TZ = timezone(timedelta(hours=-7), "MST")  # Arizona: no daylight saving
@@ -176,9 +177,16 @@ def _distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 
 def choose_spot(places: dict, area_a: str, area_b: str, large: bool = False) -> dict:
-    """Public spot closest to both students' campus areas. Large items need curbside."""
+    """Public spot closest to both students' campus areas. Large items need curbside.
+
+    "any" (no preference) defers to the other student's area, or central if both said so.
+    """
     areas = places["areas"]
     centre = places["areas"].get("central") or next(iter(areas.values()))
+    if area_a == ANY_AREA:
+        area_a = area_b
+    if area_b == ANY_AREA:
+        area_b = area_a
     pa, pb = areas.get(area_a, centre), areas.get(area_b, centre)
     candidates = [p for p in places["places"] if p["curbside"] or not large]
     if not candidates:

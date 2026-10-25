@@ -92,3 +92,60 @@ def test_invalid_inputs_are_rejected():
         Side("seller", asking=50, limit=60)
     with pytest.raises(ValueError):
         Side("buyer", asking=50, limit=40, style="aggressive")
+
+
+# ---------- hidden reserve (hold_back)
+
+HOLDS = st.floats(min_value=0.05, max_value=0.20)
+
+
+@settings(max_examples=2000)
+@given(deals(), HOLDS, HOLDS)
+def test_reserve_never_crosses_a_limit_and_never_deals_without_overlap(deal, sh, bh):
+    asking, floor, ceiling, s_style, b_style = deal
+    result = simulate(asking, floor, ceiling, s_style, b_style, sh, bh)
+    for turn in result.turns:
+        if turn.action == "offer" and turn.role == "seller":
+            assert floor <= turn.amount <= asking
+        if turn.action == "offer" and turn.role == "buyer":
+            assert 1 <= turn.amount <= ceiling
+    if floor > ceiling:
+        assert not result.agreed
+    if result.agreed:
+        assert floor <= result.price <= ceiling
+
+
+@settings(max_examples=2000)
+@given(deals(), HOLDS, HOLDS)
+def test_reserve_still_closes_deals_with_room_to_spare(deal, sh, bh):
+    asking, floor, ceiling, s_style, b_style = deal
+    seller_reserve = strategy.offer_target(Side("seller", asking, floor, s_style, sh)) - floor
+    buyer_reserve = ceiling - strategy.offer_target(Side("buyer", asking, ceiling, b_style, bh))
+    if ceiling - floor >= min(seller_reserve, buyer_reserve):
+        assert simulate(asking, floor, ceiling, s_style, b_style, sh, bh).agreed
+
+
+@settings(max_examples=2000)
+@given(deals(), HOLDS)
+def test_final_offers_do_not_reveal_the_limit(deal, hold):
+    asking, floor, ceiling, s_style, b_style = deal
+    seller = Side("seller", asking, floor, s_style, hold)
+    buyer = Side("buyer", asking, ceiling, b_style, hold)
+    if asking - floor >= 2:
+        assert planned_offer(seller, ROUNDS) > floor
+    if ceiling >= 10:
+        assert planned_offer(buyer, ROUNDS) < ceiling
+        assert opening_offer(asking, strategy.offer_target(buyer)) < ceiling
+
+
+def test_fridge_example_matches_the_spec_with_a_reserve():
+    result = simulate(70, 45, 65, seller_hold=0.1, buyer_hold=0.1)
+    assert result.price == 55
+
+
+def test_reserve_is_bounded():
+    assert strategy.reserve_dollars(0.2, 1) == 0
+    assert strategy.reserve_dollars(0.01, 10) == 1
+    assert strategy.reserve_dollars(0.5, 10) == 5
+    with pytest.raises(ValueError):
+        Side("seller", 70, 45, hold_back=0.9)

@@ -16,7 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from push_secrets import ENV_PATH, read_env  # noqa: E402
 
 STRING, INTEGER, ATTACHMENT = 3, 4, 11
-AREA_CHOICES = [{"name": a.title(), "value": a} for a in ("north", "central", "south")]
+AREA_CHOICES = [{"name": a.title(), "value": a} for a in ("north", "central", "south")] + [
+    {"name": "Any (no preference)", "value": "any"}
+]
 
 COMMANDS = [
     {
