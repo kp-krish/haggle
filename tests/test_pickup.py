@@ -267,7 +267,7 @@ def test_no_show_relists_and_offers_item_to_earlier_buyer(world, monkeypatch):
     buyer = store.table("users").get_item(Key={"user_id": BUYER})["Item"]
     assert buyer["no_show_count"] == 1
     payload = json.loads(world["ilambda"].invoke.call_args.kwargs["Payload"])
-    assert payload == {"action": "reopen", "deal_id": "deal_1"}
+    assert payload == {"action": "reopen", "deal_id": "deal_1", "penalized": BUYER}
 
     deals.reopen("deal_1")
     assert store.table("listings").get_item(Key={"listing_id": "lst_1"})["Item"]["status"] == "open"

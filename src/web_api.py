@@ -30,6 +30,7 @@ import boto3
 from boto3.dynamodb.conditions import Attr, Key
 
 import badges
+import game
 import store
 from categories import CATEGORIES
 from interactions import (
@@ -157,9 +158,11 @@ def listing_card(item: dict, viewer: str, seller: dict | None = None) -> dict:
 
 def _deal_view(deal: dict, viewer: str) -> dict:
     view = _public(deal)
-    for k in [k for k in view if k.startswith(("last_text", "last_offer", "handoff_"))]:
+    hidden = ("last_text", "last_offer", "handoff_", "ladder", "reward_")
+    for k in [k for k in view if k.startswith(hidden)]:
         view.pop(k)
     view["side"] = "seller" if deal["seller_id"] == viewer else "buyer"
+    view["has_recap"] = bool(deal.get(f"reward_{view['side']}", {}).get("points"))
     if deal.get("slot_start"):
         view["pickup"] = f"{format_slot(datetime.fromisoformat(deal['slot_start']))}, " + (
             deal.get("spot_name", "")
@@ -430,6 +433,7 @@ def my_haggle(user_id: str) -> dict:
             "windows": user.get("default_windows", ""),
             "style": user.get("style", "balanced"),
             "paused": is_paused(user_id),
+            "game": game.profile(user),
         },
         "listings": listings,
         "deals": [_deal_view(d, user_id) for d in deals if d.get("state") != "passed"],
@@ -500,6 +504,49 @@ def stop_my_deal(user_id: str, deal_id: str) -> dict:
     return {"message": stop_deal(user_id, deal_id)}
 
 
+def deal_recap(user_id: str, deal_id: str) -> dict:
+    """One finished deal for the student who was in it: the offers round by round, the
+    outcome, and what it earned them. Both sides' offers were already in their DMs."""
+    deal = store.table("deals").get_item(Key={"deal_id": deal_id}).get("Item")
+    if not deal or user_id not in (deal["seller_id"], deal["buyer_id"]):
+        raise ApiError(404, "deal not found")
+    if deal.get("agreed_price") is None:
+        raise ApiError(409, "this deal never reached a price")
+    view = _deal_view(deal, user_id)
+    reward = deal.get(f"reward_{view['side']}") or {}
+    view["ladder"] = [
+        {
+            "round": int(s["t"]) + 1,
+            "side": s["side"],
+            "amount": int(s["amount"]),
+            "accept": s["action"] == "accept",
+        }
+        for s in deal.get("ladder") or []
+    ]
+    view["rounds"] = game.rounds(deal)
+    view["saving"] = game.saving(deal)
+    view["reward"] = (
+        {
+            "points": [
+                {"reason": p["reason"], "points": int(p["points"])} for p in reward["points"]
+            ],
+            "achievements": [
+                {"id": a, "label": game.ACHIEVEMENTS[a][0], "detail": game.ACHIEVEMENTS[a][1]}
+                for a in reward.get("achievements", [])
+            ],
+            "rank": reward.get("rank"),
+            "ranked_up": bool(reward.get("ranked_up")),
+        }
+        if reward.get("points")
+        else None
+    )
+    return view
+
+
+def zones(user_id: str) -> dict:
+    return game.zone_scores()
+
+
 def cancel_my_booking(user_id: str, deal_id: str) -> dict:
     ok, message = cancel_booking(user_id, deal_id)
     if not ok:
@@ -530,6 +577,8 @@ ROUTES = [
     ("POST", r"/web/uploads", lambda u, m, q, b: create_upload(u, b)),
     ("GET", r"/web/me", lambda u, m, q, b: my_haggle(u)),
     ("PUT", r"/web/me/preferences", lambda u, m, q, b: update_preferences(u, b)),
+    ("GET", r"/web/zones", lambda u, m, q, b: zones(u)),
+    ("GET", rf"/web/deals/{ID}", lambda u, m, q, b: deal_recap(u, m[1])),
     ("POST", rf"/web/deals/{ID}/stop", lambda u, m, q, b: stop_my_deal(u, m[1])),
     ("POST", rf"/web/deals/{ID}/cancel", lambda u, m, q, b: cancel_my_booking(u, m[1])),
 ]

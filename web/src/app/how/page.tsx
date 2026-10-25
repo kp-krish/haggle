@@ -56,6 +56,7 @@ const COMMANDS: [string, string][] = [
   ["/deals", "Your open listings, searches and negotiations."],
   ["/stop", "Take down a listing, stop a search or end a negotiation."],
   ["/cancel", "Cancel a confirmed pickup you can't make."],
+  ["/rank", "Your campus rank, points and achievements."],
 ];
 
 function Code({ children }: { children: ReactNode }) {
@@ -106,6 +107,21 @@ export default async function HowPage() {
               . The other student hears right away. If the buyer cancels, the item goes back on sale; if the seller
               cancels, the listing comes down and the buyer&apos;s agent keeps looking. Cancellations show on your
               profile, and a pickup you skip without cancelling counts as a no-show.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="text-lg font-semibold tracking-tight">Ranks, achievements and zone rivalry</h2>
+            <p className="max-w-prose text-muted">
+              Every completed pickup earns points, with a little extra for closing within two rounds or getting 20% off
+              as a buyer. Points move you up from Freshman to Sophomore, Junior, Senior and Sun Devil Legend, and your
+              rank shows as a role in the Discord server. Cancelling or missing a pickup costs points. Achievements like
+              Hard Bargainer and Campus Explorer collect on{" "}
+              <Link href="/me" className="text-ink underline underline-offset-4">
+                My deals
+              </Link>
+              , and after each pickup you get a recap of how the haggling went. Each week, North, Central and South
+              campus compete for the most completed pickups.
             </p>
           </section>
         </div>

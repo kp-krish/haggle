@@ -89,6 +89,7 @@ COMMANDS = [
             }
         ],
     },
+    {"name": "rank", "description": "Your campus rank, points and achievements."},
     {
         "name": "cancel",
         "description": "Cancel a confirmed pickup. The other student is told right away.",

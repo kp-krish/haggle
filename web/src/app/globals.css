@@ -17,6 +17,10 @@
   --color-pine-wash: #e9f0ed;
   --color-bad: #9b2c20;
   --color-warn: #8a5a00;
+
+  /* Offer chart only (validated for colour-blind separation on both surfaces). */
+  --color-seller: #b45f06;
+  --color-buyer: #00866a;
 }
 
 /*
@@ -35,6 +39,8 @@
     --color-pine-wash: #1d2a26;
     --color-bad: #f08a7e;
     --color-warn: #e0b25a;
+    --color-seller: #c97d35;
+    --color-buyer: #2a9c80;
     color-scheme: dark;
   }
 }
@@ -49,6 +55,8 @@
   --color-pine-wash: #1d2a26;
   --color-bad: #f08a7e;
   --color-warn: #e0b25a;
+  --color-seller: #c97d35;
+  --color-buyer: #2a9c80;
   color-scheme: dark;
 }
 :root[data-theme="light"] {

@@ -140,6 +140,38 @@ def display_name(user_id: str) -> str:
             return f"<@{user_id}>"  # last resort; may render as @unknown-user
 
 
+# ---------- Server roles (rank roles; needs the bot's Manage Roles permission)
+
+
+def _guild() -> str:
+    return store.discord_secret()["guild_id"]
+
+
+def guild_roles() -> list[dict]:
+    return _request("GET", f"/guilds/{_guild()}/roles")
+
+
+def create_role(name: str, color: int) -> dict:
+    # Hoisted so the member list groups students by rank.
+    return _request(
+        "POST",
+        f"/guilds/{_guild()}/roles",
+        {"name": name, "color": color, "hoist": True, "mentionable": False},
+    )
+
+
+def member_roles(user_id: str) -> list[str]:
+    return _request("GET", f"/guilds/{_guild()}/members/{user_id}")["roles"]
+
+
+def add_role(user_id: str, role_id: str) -> None:
+    _request("PUT", f"/guilds/{_guild()}/members/{user_id}/roles/{role_id}")
+
+
+def remove_role(user_id: str, role_id: str) -> None:
+    _request("DELETE", f"/guilds/{_guild()}/members/{user_id}/roles/{role_id}")
+
+
 # ---------- Message building
 
 

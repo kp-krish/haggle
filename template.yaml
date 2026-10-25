@@ -287,6 +287,7 @@ Resources:
         - DynamoDBCrudPolicy: { TableName: !Ref DealsTable }
         - DynamoDBCrudPolicy: { TableName: !Ref ListingsTable }
         - DynamoDBCrudPolicy: { TableName: !Ref WantsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref UsersTable } # points, achievements
 
   # EventBridge Scheduler uses this to call the deals function for reminders/handoffs.
   FollowupSchedulerRole:

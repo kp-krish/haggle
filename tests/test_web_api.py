@@ -456,3 +456,41 @@ def test_cancel_booking_from_the_website(api, monkeypatch):
     me = call("GET", "/web/me", user=BUYER)[1]
     assert me["deals"][0]["state"] == "cancelled" and me["deals"][0]["cancelled_by"] == "buyer"
     assert me["profile"]["stats"]["cancelled"] == 1
+
+
+def test_profile_carries_rank_and_achievements(api):
+    store.table("users").put_item(
+        Item={"user_id": SELLER, "points": 260, "achievements": {"first_deal": "2026-10-20"}}
+    )
+    game = call("GET", "/web/me")[1]["profile"]["game"]
+    assert game["rank"]["name"] == "Junior" and game["rank"]["next"] == "Senior"
+    earned = {a["id"]: a["earned_at"] for a in game["achievements"]}
+    assert earned["first_deal"] == "2026-10-20" and earned["quick_close"] is None
+
+
+def test_deal_recap_is_only_for_the_two_students(api):
+    ladder = [
+        {"t": 0, "side": "seller", "amount": 70, "action": "offer"},
+        {"t": 0, "side": "buyer", "amount": 50, "action": "offer"},
+        {"t": 1, "side": "seller", "amount": 58, "action": "accept"},
+    ]
+    reward = {
+        "points": [{"reason": "Completed pickup", "points": 50}],
+        "achievements": ["first_deal"],
+    }
+    put_deal("deal_1", "done", agreed_price=58, ladder=ladder, reward_buyer=reward)
+    assert call("GET", "/web/deals/deal_1", user=STRANGER)[0] == 404
+    status, body = call("GET", "/web/deals/deal_1", user=BUYER)
+    assert status == 200
+    assert body["ladder"][-1] == {"round": 2, "side": "seller", "amount": 58, "accept": True}
+    assert body["rounds"] == 2 and body["saving"] == 12
+    assert body["reward"]["achievements"][0]["label"] == "First Deal"
+    # The seller hasn't been credited yet, so their view has no reward.
+    assert call("GET", "/web/deals/deal_1", user=SELLER)[1]["reward"] is None
+    mine = call("GET", "/web/me", user=BUYER)[1]["deals"][0]
+    assert mine["has_recap"] is True and "ladder" not in mine and "reward_buyer" not in mine
+
+
+def test_zones_endpoint(api):
+    status, body = call("GET", "/web/zones")
+    assert status == 200 and set(body["scores"]) == {"north", "central", "south"}

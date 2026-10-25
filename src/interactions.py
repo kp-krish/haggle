@@ -22,6 +22,7 @@ from boto3.dynamodb.conditions import Attr, Key
 from nacl.exceptions import BadSignatureError
 from nacl.signing import VerifyKey
 
+import game
 import notify
 import store
 from notify import EPHEMERAL, private, respond
@@ -786,14 +787,33 @@ def press_done(interaction: dict, user_id: str, deal_id: str) -> dict:
         return respond(
             notify.UPDATE_MESSAGE, {"content": "Thanks, already recorded.", "components": []}
         )
-    # "Done" vouches for the other student, in the role they played (for badges).
+    # "Done" vouches for the other student, in the role they played (for badges), and
+    # earns them their points and recap. Nobody can award themselves.
     _bump(deal[f"{other}_id"], "done_count")
     _bump(deal[f"{other}_id"], f"done_as_{other}")
     if deal.get(f"handoff_{other}") == "done":
         _set_deal_state(deal_id, "done", expect=("confirmed",))
+    _deals_job("reward", deal_id, role=other)
+    yours = (
+        "Your own recap is in your messages."
+        if deal.get(f"handoff_{other}") == "done"
+        else f"Your own recap and points arrive when the {other} confirms too."
+    )
     return respond(
         notify.UPDATE_MESSAGE,
-        {"content": "Great, glad it worked out. Thanks for using Haggle!", "components": []},
+        {
+            "content": f"Great, glad it worked out. Thanks for using Haggle! {yours}",
+            "components": [],
+        },
+    )
+
+
+def _deals_job(action: str, deal_id: str, **fields) -> None:
+    """Hand follow-up work (messages, relisting, rewards) to the deals function."""
+    _lambda().invoke(
+        FunctionName=os.environ["DEALS_FUNCTION"],
+        InvocationType="Event",
+        Payload=json.dumps({"action": action, "deal_id": deal_id, **fields}).encode(),
     )
 
 
@@ -811,11 +831,8 @@ def press_noshow(interaction: dict, user_id: str, deal_id: str) -> dict:
         )
     other = "buyer" if side == "seller" else "seller"
     _bump(deal[f"{other}_id"], "no_show_count")
-    _lambda().invoke(
-        FunctionName=os.environ["DEALS_FUNCTION"],
-        InvocationType="Event",
-        Payload=json.dumps({"action": "reopen", "deal_id": deal_id}).encode(),
-    )
+    game.penalize(deal[f"{other}_id"], game.NO_SHOW_POINTS)
+    _deals_job("reopen", deal_id, penalized=deal[f"{other}_id"])
     message = (
         "Sorry it didn't happen. I've relisted your item."
         if side == "seller"
@@ -844,11 +861,8 @@ def cancel_booking(user_id: str, deal_id: str) -> tuple[bool, str]:
     except store.conditional_failed():
         return False, "Only a confirmed pickup can be cancelled, and this one isn't."
     _bump(user_id, "cancel_count")
-    _lambda().invoke(
-        FunctionName=os.environ["DEALS_FUNCTION"],
-        InvocationType="Event",
-        Payload=json.dumps({"action": "cancelled", "deal_id": deal_id}).encode(),
-    )
+    game.penalize(user_id, game.CANCEL_POINTS)
+    _deals_job("cancelled", deal_id)
     if side == "seller":
         return True, "Booking cancelled and your listing taken down. I've let the buyer know."
     return True, "Booking cancelled. I've let the seller know, and the item is listed again."
@@ -874,12 +888,31 @@ def autocomplete_cancel(interaction: dict, user_id: str) -> dict:
     return respond(notify.AUTOCOMPLETE_RESULT, {"choices": choices[:25]})
 
 
+def cmd_rank(interaction: dict, user_id: str) -> dict:
+    user = store.table("users").get_item(Key={"user_id": user_id}).get("Item") or {}
+    info = game.profile(user)
+    earned = [a for a in info["achievements"] if a["earned_at"]]
+    lines = [game.rank_line(info["rank"]["points"])]
+    if earned:
+        lines.append(f"Achievements ({len(earned)} of {len(info['achievements'])}):")
+        lines += [f"• **{a['label']}**: {a['detail']}" for a in earned]
+    else:
+        lines.append("No achievements yet. Complete a pickup to earn your first.")
+    lines.append(
+        f"Points: +{game.PICKUP_POINTS} per completed pickup, +{game.QUICK_CLOSE_POINTS} for a "
+        f"quick close, +{game.GOOD_SAVING_POINTS} for 20% off as a buyer; "
+        f"{game.CANCEL_POINTS} for cancelling, {game.NO_SHOW_POINTS} for a no-show."
+    )
+    return private("\n".join(lines))
+
+
 COMMANDS = {
     "sell": cmd_sell,
     "want": cmd_want,
     "deals": cmd_deals,
     "stop": cmd_stop,
     "cancel": cmd_cancel,
+    "rank": cmd_rank,
 }
 AUTOCOMPLETES = {"stop": autocomplete_stop, "cancel": autocomplete_cancel}
 MODALS = {"sell": submit_sell, "want": submit_want, "limit": submit_limit, "window": submit_window}

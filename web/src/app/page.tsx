@@ -8,7 +8,7 @@ import { ButtonLink, Empty } from "@/components/ui";
 import { api } from "@/lib/api";
 import { categoryLabel } from "@/lib/format";
 import { DISCORD_INVITE } from "@/lib/links";
-import type { BoardRow, BrowseResponse, Listing, PlacesResponse } from "@/lib/types";
+import type { BoardRow, BrowseResponse, Listing, PlacesResponse, ZoneScores } from "@/lib/types";
 
 const ZONES = ["north", "central", "south"];
 const SORTS = [
@@ -43,10 +43,11 @@ export default async function Home(props: PageProps<"/">) {
     sort: pick("sort"),
   };
 
-  const [browse, board, places] = await Promise.all([
+  const [browse, board, places, zones] = await Promise.all([
     api<BrowseResponse>("GET", "/web/listings", { query: { q: filters.q, sort: filters.sort } }),
     api<{ rows: BoardRow[] }>("GET", "/web/board"),
     api<PlacesResponse>("GET", "/web/places"),
+    api<ZoneScores>("GET", "/web/zones"),
   ]);
 
   // Search and sort happen on the server; area, category and price narrow here so the
@@ -75,12 +76,14 @@ export default async function Home(props: PageProps<"/">) {
                   places={places.places}
                   activeArea={filters.area || undefined}
                   query={href(filters, { area: "" }).replace(/^\/\??/, "")}
+                  scores={zones.scores}
                 />
               </div>
               <p className="border-t border-line px-2.5 py-2 text-[12.5px] text-muted">
                 Every pickup is at a busy public spot, marked ◆. Click a zone to narrow the list.
               </p>
             </div>
+            <ZoneRivalry zones={zones} />
           </div>
 
           <FilterList
@@ -190,6 +193,28 @@ export default async function Home(props: PageProps<"/">) {
           <Promises />
         </main>
       </div>
+    </div>
+  );
+}
+
+/** This week's completed pickups per zone. The map shades zones by the same numbers. */
+function ZoneRivalry({ zones }: { zones: ZoneScores }) {
+  const total = Object.values(zones.scores).reduce((a, b) => a + b, 0);
+  const name = (z: string) => z.charAt(0).toUpperCase() + z.slice(1);
+  const ranked = ZONES.map((z) => [z, zones.scores[z] ?? 0] as const).sort((a, b) => b[1] - a[1]);
+  return (
+    <div className="mt-3 space-y-1">
+      <h2 className="text-[13px] font-semibold">Zone rivalry, this week</h2>
+      <p className="text-[13.5px] text-muted">
+        {total === 0
+          ? "No pickups yet this week. The first one puts your zone on top."
+          : zones.leader
+            ? `${name(zones.leader)} leads with ${zones.scores[zones.leader]} pickup${zones.scores[zones.leader] === 1 ? "" : "s"}.`
+            : "It's a tie at the top."}
+      </p>
+      {total > 0 && (
+        <p className="tabular text-[13px] text-faint">{ranked.map(([z, n]) => `${name(z)} ${n}`).join(" · ")}</p>
+      )}
     </div>
   );
 }

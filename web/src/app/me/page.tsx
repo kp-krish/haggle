@@ -8,7 +8,7 @@ import { CampusMap } from "@/components/campus-map-lazy";
 import { Container, Empty, PageTitle, Price, Section, Status, Trust } from "@/components/ui";
 import { api } from "@/lib/api";
 import { dealStatus, listingStatus, since } from "@/lib/format";
-import type { Deal, Listing, MeResponse, PlacesResponse } from "@/lib/types";
+import type { Deal, Game, Listing, MeResponse, PlacesResponse } from "@/lib/types";
 
 export const metadata: Metadata = { title: "My deals" };
 
@@ -46,6 +46,8 @@ export default async function MePage() {
             Default times and area
           </Link>
         </div>
+
+        <RankAndAchievements game={profile.game} />
 
         {nextPickup && (
           <section className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
@@ -141,10 +143,74 @@ function DealList({ deals }: { deals: Deal[] }) {
               </ActionButton>
             )}
             {d.state === "confirmed" && <CancelBooking deal={d} />}
+            {(d.has_recap || d.state === "done") && (
+              <Link href={`/me/deals/${d.deal_id}`} className="text-sm font-semibold underline-offset-4 hover:underline">
+                Recap
+              </Link>
+            )}
           </li>
         );
       })}
     </ul>
+  );
+}
+
+function RankAndAchievements({ game }: { game: Game }) {
+  const { rank } = game;
+  const earned = game.achievements.filter((a) => a.earned_at);
+  return (
+    <section className="grid gap-10 md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
+      <div className="space-y-3">
+        <p className="text-[13px] font-semibold text-pine">Campus rank</p>
+        <h2 className="text-3xl font-semibold tracking-tight">{rank.name}</h2>
+        <div className="space-y-1.5">
+          <div
+            className="h-[3px] w-full bg-line"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(rank.progress * 100)}
+            aria-label={rank.next ? `Progress to ${rank.next}` : "Top rank"}
+          >
+            <div className="h-full bg-pine" style={{ width: `${rank.progress * 100}%` }} />
+          </div>
+          <p className="tabular text-sm text-muted">
+            {rank.points} points
+            {rank.next ? ` · ${rank.to_next} to ${rank.next}` : " · top rank"}
+          </p>
+        </div>
+        <ol className="flex flex-wrap gap-x-2 text-[13px] text-faint">
+          {game.ranks.map((r, i) => (
+            <li key={r.name} className={r.name === rank.name ? "font-semibold text-ink" : ""}>
+              {r.name}
+              {i < game.ranks.length - 1 && <span className="ml-2 text-faint">→</span>}
+            </li>
+          ))}
+        </ol>
+        <p className="text-[13px] text-muted">
+          +50 per completed pickup, +10 for closing within 2 rounds, +10 for 20% off as a buyer. Cancelling costs 25,
+          a no-show 50. Your rank shows as a role in the Discord server.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <p className="text-[13px] font-semibold">
+          Achievements <span className="tabular font-normal text-faint">{earned.length} of {game.achievements.length}</span>
+        </p>
+        <ul className="grid gap-x-8 border-t border-line sm:grid-cols-2">
+          {game.achievements.map((a) => (
+            <li key={a.id} className="border-b border-line py-2.5">
+              <span className={`block text-[15px] font-semibold ${a.earned_at ? "" : "text-faint"}`}>{a.label}</span>
+              <span className="block text-[13px] text-muted">
+                {a.earned_at
+                  ? `Earned ${new Date(a.earned_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+                  : a.detail}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
   );
 }
 

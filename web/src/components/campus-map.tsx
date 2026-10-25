@@ -81,26 +81,28 @@ function restyle(map: MapLibreMap, COLORS: Palette) {
   }
 }
 
-function zonesGeoJSON(areas: Record<string, Area>) {
+function zonesGeoJSON(areas: Record<string, Area>, scores?: Record<string, number>) {
+  const best = Math.max(1, ...Object.values(scores ?? {}));
   return {
     type: "FeatureCollection" as const,
     features: Object.entries(areas).map(([key, a]) => {
       const [[w, s], [e, n]] = a.bounds;
       return {
         type: "Feature" as const,
-        properties: { area: key },
+        // share: this week's pickups relative to the leading zone, for the shading.
+        properties: { area: key, share: (scores?.[key] ?? 0) / best },
         geometry: { type: "Polygon" as const, coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] },
       };
     }),
   };
 }
 
-function zoneLabel(area: Area, active: boolean, COLORS: Palette): HTMLElement {
+function zoneLabel(area: Area, active: boolean, COLORS: Palette, score?: number): HTMLElement {
   const el = document.createElement("div");
   el.style.cssText = `font-family: var(--font-sans); font-weight: 600; font-size: 12px; pointer-events: none;
-    color: ${active ? COLORS.pine : COLORS.ink};
+    color: ${active ? COLORS.pine : COLORS.ink}; font-variant-numeric: tabular-nums;
     text-shadow: 0 0 3px ${COLORS.halo}, 0 0 3px ${COLORS.halo};`;
-  el.textContent = area.label.replace(" campus", "");
+  el.textContent = area.label.replace(" campus", "") + (score !== undefined ? ` ${score}` : "");
   return el;
 }
 
@@ -117,6 +119,7 @@ function spotMarker(place: Place, highlight: boolean, COLORS: Palette): HTMLElem
 /**
  * The real ASU Tempe map.
  *  - browse: all zones; click one to filter listings (other filters in `query` are kept).
+ *            With `scores`, zones are shaded by this week's pickups (zone rivalry).
  *  - focus:  one zone (a listing's area) and its meeting spots, fixed view.
  *  - pickup: a single meeting spot.
  */
@@ -128,6 +131,7 @@ export function CampusMap({
   spotId,
   query = "",
   className = "",
+  scores,
 }: {
   areas: Record<string, Area>;
   places: Place[];
@@ -136,7 +140,9 @@ export function CampusMap({
   spotId?: string;
   query?: string;
   className?: string;
+  scores?: Record<string, number>;
 }) {
+  const scoreKey = JSON.stringify(scores ?? null);
   const container = useRef<HTMLDivElement>(null);
   const router = useRouter();
   // Client-only component (see campus-map-lazy), so the theme can be read on first render.
@@ -181,14 +187,20 @@ export function CampusMap({
       const visibleAreas =
         mode === "browse" ? areas : activeArea && areas[activeArea] ? { [activeArea]: areas[activeArea] } : {};
 
-      map.addSource("zones", { type: "geojson", data: zonesGeoJSON(visibleAreas) });
+      const shaded = mode === "browse" && scores;
+      map.addSource("zones", { type: "geojson", data: zonesGeoJSON(visibleAreas, shaded ? scores : undefined) });
       map.addLayer({
         id: "zone-fill",
         type: "fill",
         source: "zones",
         paint: {
           "fill-color": COLORS.pine,
-          "fill-opacity": ["case", ["==", ["get", "area"], activeArea ?? ""], 0.1, 0],
+          "fill-opacity": [
+            "case",
+            ["==", ["get", "area"], activeArea ?? ""],
+            shaded ? 0.22 : 0.1,
+            shaded ? ["*", 0.18, ["get", "share"]] : 0,
+          ],
         },
       });
       map.addLayer({
@@ -205,7 +217,10 @@ export function CampusMap({
       if (mode !== "pickup") {
         for (const [key, a] of Object.entries(visibleAreas)) {
           markers.push(
-            new Marker({ element: zoneLabel(a, key === activeArea, COLORS), anchor: "top-left" })
+            new Marker({
+              element: zoneLabel(a, key === activeArea, COLORS, shaded ? (scores[key] ?? 0) : undefined),
+              anchor: "top-left",
+            })
               .setLngLat([a.bounds[0][0] + 0.0004, a.bounds[1][1] - 0.0002])
               .addTo(map),
           );
@@ -241,7 +256,7 @@ export function CampusMap({
     };
     // The map is rebuilt only when what it shows changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, spotId, activeArea, query, dark]);
+  }, [mode, spotId, activeArea, query, dark, scoreKey]);
 
   return <div ref={container} className={`h-full min-h-[320px] w-full ${className}`} role="region" aria-label="Map of ASU Tempe campus" />;
 }

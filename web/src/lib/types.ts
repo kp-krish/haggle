@@ -32,9 +32,31 @@ export type Deal = {
   place_id?: string;
   spot_name?: string;
   cancelled_by?: "seller" | "buyer";
+  has_recap?: boolean;
   created_at: string;
   source?: string;
 };
+
+export type LadderStep = { round: number; side: "seller" | "buyer"; amount: number; accept: boolean };
+
+export type Recap = Deal & {
+  agreed_price: number;
+  ladder: LadderStep[];
+  rounds: number;
+  saving: number;
+  reward: {
+    points: { reason: string; points: number }[];
+    achievements: { id: string; label: string; detail: string }[];
+    rank: string | null;
+    ranked_up: boolean;
+  } | null;
+};
+
+export type Rank = { name: string; points: number; next: string | null; to_next: number; progress: number };
+export type Achievement = { id: string; label: string; detail: string; earned_at: string | null };
+export type Game = { rank: Rank; ranks: { name: string; points: number }[]; achievements: Achievement[] };
+
+export type ZoneScores = { since: string; scores: Record<string, number>; leader: string | null };
 
 export type Profile = {
   badges: Badge[];
@@ -43,6 +65,7 @@ export type Profile = {
   windows: string;
   style: string;
   paused: boolean;
+  game: Game;
 };
 
 export type BoardRow = {

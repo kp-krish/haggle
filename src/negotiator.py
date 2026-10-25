@@ -203,13 +203,20 @@ def take_turn(deal_id: str, t: int, side: str) -> dict:
         updates[f"last_offer_{side}"] = move.amount
     if move.action == "accept":
         updates["agreed_price"] = move.amount
+    values = {f":{k}": v for k, v in updates.items()}
+    sets = [f"#{k} = :{k}" for k in updates]
+    if move.action in ("offer", "accept"):
+        # The deal's own copy of the offers, for the recap (the offers table expires).
+        sets.append("ladder = list_append(if_not_exists(ladder, :none), :step)")
+        values[":none"] = []
+        values[":step"] = [{"t": t, "side": side, "amount": move.amount, "action": move.action}]
     try:
         store.table("deals").update_item(
             Key={"deal_id": deal_id},
-            UpdateExpression="SET " + ", ".join(f"#{k} = :{k}" for k in updates),
+            UpdateExpression="SET " + ", ".join(sets),
             ConditionExpression=Attr("state").eq("negotiating"),
             ExpressionAttributeNames={f"#{k}": k for k in updates},
-            ExpressionAttributeValues={f":{k}": v for k, v in updates.items()},
+            ExpressionAttributeValues=values,
         )
     except store.conditional_failed():
         return STOPPED  # stopped while we were thinking

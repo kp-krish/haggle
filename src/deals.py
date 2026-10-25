@@ -17,6 +17,7 @@ from functools import cache
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
 
+import game
 import notify
 import scheduler
 import store
@@ -105,6 +106,8 @@ def start(deal_id: str) -> dict:
         state="negotiating",
         last_offer_seller=deal["asking"],
         last_text_seller=f"{deal.get('title', 'Item')}. Asking ${deal['asking']}.",
+        # A relisted item can be haggled again; the recap shows only this negotiation.
+        ladder=[{"t": 0, "side": "seller", "amount": int(deal["asking"]), "action": "offer"}],
         updated_at=store.now_iso(),
     )
     title = deal.get("title", "your item")
@@ -401,6 +404,121 @@ def handoff(deal_id: str) -> None:
     )
 
 
+# ---------- Rewards and the deal recap
+
+
+def ladder_table(deal: dict) -> str:
+    """The offers as a small monospace table, one row per round."""
+    rounds: dict[int, dict] = {}
+    for step in deal.get("ladder") or []:
+        rounds.setdefault(int(step["t"]), {})[step["side"]] = step
+
+    def cell(t: int, side: str) -> str:
+        step = rounds[t].get(side)
+        if not step:
+            return "-"
+        return f"${int(step['amount'])}" + (" ✓" if step["action"] == "accept" else "")
+
+    lines = ["Round  Seller  Buyer"]
+    lines += [f"{t + 1:<6} {cell(t, 'seller'):<7} {cell(t, 'buyer')}" for t in sorted(rounds)]
+    return "```\n" + "\n".join(lines) + "\n```"
+
+
+def recap(deal: dict, role: str, result: dict) -> dict:
+    """The recap a student gets once the other side confirms the pickup happened."""
+    price, asking = int(deal["agreed_price"]), int(deal["asking"])
+    rounds = game.rounds(deal)
+    if role == "buyer":
+        saved = game.saving(deal)
+        outcome = (
+            f"You saved ${saved} ({round(game.saving_share(deal) * 100)}%) off the asking price."
+            if saved > 0
+            else "You paid the asking price."
+        )
+    else:
+        outcome = (
+            "You got your full asking price."
+            if price >= asking
+            else f"You got {round(price / asking * 100)}% of your asking price."
+        )
+    gained = sum(n for _, n in result["points"])
+    fields = [
+        {"name": "Offers", "value": ladder_table(deal)},
+        {
+            "name": f"+{gained} points",
+            "value": ", ".join(f"{reason} +{n}" for reason, n in result["points"]),
+        },
+    ]
+    if result["new"]:
+        fields.append(
+            {
+                "name": "New achievement" + ("s" if len(result["new"]) > 1 else ""),
+                "value": "\n".join(
+                    f"**{game.ACHIEVEMENTS[a][0]}**: {game.ACHIEVEMENTS[a][1]}"
+                    for a in result["new"]
+                ),
+            }
+        )
+    rank_value = game.rank_line(result["total"])
+    if result["after"]["name"] != result["before"]["name"]:
+        rank_value = f"You're now a **{result['after']['name']}**.\n{rank_value}"
+    fields.append({"name": "Rank", "value": rank_value})
+    other = "buyer" if role == "seller" else "seller"
+    return {
+        "content": f"The {other} confirmed the pickup happened. Thanks for showing up!",
+        "embeds": [
+            {
+                "title": f"Deal recap: {deal.get('title', 'your item')}",
+                "description": f"**${price}** (asking ${asking}) after {rounds} round"
+                f"{'' if rounds == 1 else 's'}. {outcome}",
+                "color": notify.COLOR,
+                "fields": fields,
+            }
+        ],
+    }
+
+
+def reward(deal_id: str, role: str) -> dict:
+    """The other student vouched that the pickup happened: credit this one."""
+    try:
+        store.table("deals").update_item(
+            Key={"deal_id": deal_id},
+            UpdateExpression=f"SET reward_{role} = :r",
+            ConditionExpression=Attr(f"reward_{role}").not_exists(),
+            ExpressionAttributeValues={":r": {}},
+        )
+    except store.conditional_failed():
+        return {"result": "already rewarded"}  # async invokes can be retried
+    deal = _deal(deal_id)
+    listing = store.table("listings").get_item(Key={"listing_id": deal["listing_id"]}).get("Item")
+    deal["category"] = (listing or {}).get("category")
+    user_id = deal[f"{role}_id"]
+    result = game.credit_pickup(user_id, deal, role)
+    store.table("deals").update_item(
+        Key={"deal_id": deal_id},
+        UpdateExpression=f"SET reward_{role} = :r",
+        ExpressionAttributeValues={
+            ":r": {
+                "points": [{"reason": r, "points": n} for r, n in result["points"]],
+                "achievements": result["new"],
+                "rank": result["after"]["name"],
+                "ranked_up": result["after"]["name"] != result["before"]["name"],
+            }
+        },
+    )
+    game.sync_role(user_id, result["total"])
+    try:
+        notify.dm(user_id, recap(deal, role, result))
+    except Exception:
+        log.exception("could not send the recap to %s", user_id)
+    return {"result": "rewarded", "points": result["total"]}
+
+
+def sync_rank(user_id: str) -> None:
+    user = store.table("users").get_item(Key={"user_id": user_id}).get("Item") or {}
+    game.sync_role(user_id, int(user.get("points", 0)))
+
+
 def cancelled(deal_id: str) -> None:
     """A confirmed pickup was called off (interactions.cancel_booking set the state)."""
     deal = _deal(deal_id)
@@ -409,6 +527,7 @@ def cancelled(deal_id: str) -> None:
         return
     other = "buyer" if by == "seller" else "seller"
     title = deal.get("title", "the item")
+    sync_rank(deal[f"{by}_id"])  # cancelling cost points, which can drop a rank
     notify.dm(
         deal[f"{other}_id"],
         {
@@ -527,6 +646,10 @@ def handler(event: dict, context):
         return handoff(deal_id)
     if action == "cancelled":
         return cancelled(deal_id)
+    if action == "reward":
+        return reward(deal_id, event["role"])
     if action == "reopen":
+        if event.get("penalized"):
+            sync_rank(event["penalized"])
         return reopen(deal_id)
     raise ValueError(f"unknown action {action}")
