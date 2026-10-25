@@ -5,12 +5,12 @@ import { stopDeal, stopListing } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { CampusMap } from "@/components/campus-map-lazy";
-import { BadgeList, ButtonLink, Container, Empty, PageTitle, Price, Section, Status } from "@/components/ui";
+import { Container, Empty, PageTitle, Price, Section, Status, Trust } from "@/components/ui";
 import { api } from "@/lib/api";
 import { dealStatus, listingStatus, since } from "@/lib/format";
 import type { Deal, Listing, MeResponse, PlacesResponse } from "@/lib/types";
 
-export const metadata: Metadata = { title: "My Haggle" };
+export const metadata: Metadata = { title: "My deals" };
 
 const LIVE_DEALS = ["proposed", "starting", "negotiating", "scheduling", "confirming"];
 
@@ -23,50 +23,58 @@ export default async function MePage() {
   const past = deals.filter((d) => !live.includes(d));
   const nextPickup = live.find((d) => d.state === "confirmed" && d.place_id);
   const working = listings.some((l) => ["processing", "publishing"].includes(l.status));
+  const { stats } = profile;
 
   return (
     <Container>
       {(working || live.some((d) => LIVE_DEALS.includes(d.state))) && <AutoRefresh every={10000} />}
-      <div className="space-y-10">
-        <div className="flex flex-wrap items-end justify-between gap-6">
-          <div className="space-y-2">
-            <PageTitle>My Haggle</PageTitle>
-            <BadgeList badges={profile.badges} />
-            <p className="text-sm text-muted">
-              {profile.stats.pickups} completed pickup{profile.stats.pickups === 1 ? "" : "s"} ·{" "}
-              {profile.stats.as_seller} as seller · {profile.stats.as_buyer} as buyer
-              {profile.stats.no_shows > 0 && ` · ${profile.stats.no_shows} missed`}
-            </p>
-          </div>
-          <Link href="/me/settings" className="font-display text-sm font-semibold uppercase tracking-wider text-muted underline hover:text-ink">
+      <div className="space-y-12">
+        <div className="flex flex-wrap items-end justify-between gap-6 border-b border-line pb-5">
+          <PageTitle
+            sub={
+              <>
+                <Trust badges={profile.badges} /> · {stats.pickups} completed pickup{stats.pickups === 1 ? "" : "s"}{" "}
+                ({stats.as_seller} selling, {stats.as_buyer} buying)
+                {stats.no_shows > 0 && ` · ${stats.no_shows} missed`}
+              </>
+            }
+          >
+            My deals
+          </PageTitle>
+          <Link href="/me/settings" className="text-sm text-muted underline-offset-4 hover:text-ink hover:underline">
             Default times and area
           </Link>
         </div>
 
         {nextPickup && (
-          <section className="grid border-2 border-ink bg-card md:grid-cols-[1fr_1.4fr]">
-            <div className="space-y-2 p-5">
-              <p className="font-display text-sm font-semibold uppercase tracking-wider text-spot">Your next pickup</p>
-              <h2 className="font-display text-3xl font-bold uppercase leading-none tracking-wide">
-                {nextPickup.title}
-              </h2>
+          <section className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+            <div className="space-y-2">
+              <p className="text-[13px] font-semibold text-pine">Next pickup</p>
+              <h2 className="text-2xl font-semibold tracking-tight">{nextPickup.title}</h2>
               <p>{nextPickup.pickup}</p>
-              {nextPickup.agreed_price !== undefined && <Price amount={nextPickup.agreed_price} />}
-              <p className="text-xs text-muted">Pay in person. A reminder arrives in Discord an hour before.</p>
+              {nextPickup.agreed_price !== undefined && <Price amount={nextPickup.agreed_price} className="text-lg" />}
+              <p className="text-sm text-muted">Pay in person. A reminder arrives in Discord an hour before.</p>
             </div>
-            <div className="relative h-64 border-t-2 border-ink md:h-auto md:border-t-0 md:border-l-2">
+            <div className="relative h-64 border border-line">
               <CampusMap areas={places.areas} places={places.places} mode="pickup" spotId={nextPickup.place_id} />
             </div>
           </section>
         )}
 
-        <Section title="Deals in progress">
-          {live.length ? <DealList deals={live} /> : <Empty>No deals in progress.</Empty>}
+        <Section title="In progress">
+          {live.length ? <DealList deals={live} /> : <Empty>Nothing in progress. Find something on the browse page.</Empty>}
         </Section>
 
-        <Section title="Your listings" action={<ButtonLink href="/sell" variant="secondary">Sell something</ButtonLink>}>
+        <Section
+          title="Your listings"
+          action={
+            <Link href="/sell" className="text-sm font-semibold hover:underline">
+              Sell something
+            </Link>
+          }
+        >
           {listings.length ? (
-            <ul className="border-2 border-ink bg-card">
+            <ul className="border-t border-line">
               {listings.map((l) => (
                 <ListingRow key={l.listing_id} listing={l} />
               ))}
@@ -89,14 +97,16 @@ export default async function MePage() {
 function ListingRow({ listing }: { listing: Listing }) {
   const s = listingStatus(listing.status);
   return (
-    <li className="flex flex-wrap items-center gap-4 border-b border-line px-4 py-3 last:border-b-0">
-      <Link href={`/listings/${listing.listing_id}`} className="min-w-0 flex-1 truncate font-bold hover:underline">
+    <li className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-b border-line py-3">
+      <Link href={`/listings/${listing.listing_id}`} className="min-w-0 flex-1 truncate font-medium hover:underline">
         {listing.title ?? "Untitled listing"}
       </Link>
-      <Price amount={listing.asking} size="sm" />
-      <Status tone={s.tone}>{s.label}</Status>
+      <Price amount={listing.asking} />
+      <span className="w-40">
+        <Status tone={s.tone}>{s.label}</Status>
+      </span>
       {listing.status === "open" && (
-        <ActionButton action={stopListing.bind(null, listing.listing_id)} variant="danger" className="px-3 py-1 text-sm">
+        <ActionButton action={stopListing.bind(null, listing.listing_id)} variant="quiet">
           Take down
         </ActionButton>
       )}
@@ -106,24 +116,23 @@ function ListingRow({ listing }: { listing: Listing }) {
 
 function DealList({ deals }: { deals: Deal[] }) {
   return (
-    <ul className="border-2 border-ink bg-card">
+    <ul className="border-t border-line">
       {deals.map((d) => {
         const s = dealStatus(d.state, d.pickup);
-        const stoppable = LIVE_DEALS.includes(d.state);
         return (
-          <li key={d.deal_id} className="flex flex-wrap items-center gap-4 border-b border-line px-4 py-3 last:border-b-0">
+          <li key={d.deal_id} className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-b border-line py-3">
             <div className="min-w-0 flex-1">
-              <Link href={`/listings/${d.listing_id}`} className="block truncate font-bold hover:underline">
+              <Link href={`/listings/${d.listing_id}`} className="font-medium hover:underline">
                 {d.title ?? "Item"}
               </Link>
-              <span className="text-xs text-muted">
-                You&apos;re the {d.side} · started {since(d.created_at)}
+              <span className="ml-2 text-[13px] text-muted">
+                {d.side === "seller" ? "selling" : "buying"} · started {since(d.created_at)}
               </span>
             </div>
-            {d.agreed_price !== undefined && <Price amount={d.agreed_price} size="sm" />}
+            {d.agreed_price !== undefined && <Price amount={d.agreed_price} />}
             <Status tone={s.tone}>{s.label}</Status>
-            {stoppable && (
-              <ActionButton action={stopDeal.bind(null, d.deal_id)} variant="secondary" className="px-3 py-1 text-sm">
+            {LIVE_DEALS.includes(d.state) && (
+              <ActionButton action={stopDeal.bind(null, d.deal_id)} variant="quiet">
                 Stop
               </ActionButton>
             )}

@@ -2,12 +2,11 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { auth, signOut } from "@/auth";
-import { Flaps } from "@/components/ui";
 
 const NAV = [
   { href: "/", label: "Browse" },
   { href: "/sell", label: "Sell" },
-  { href: "/me", label: "My Haggle" },
+  { href: "/me", label: "My deals" },
 ];
 
 export async function Header() {
@@ -15,25 +14,25 @@ export async function Header() {
   const user = session?.user;
 
   return (
-    <header className="bg-panel text-flap-ink">
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4 sm:px-6">
-        <Link href="/" aria-label="Haggle home">
-          <Flaps text="HAGGLE" className="tracking-normal" />
+    <header className="border-b border-line">
+      <div className="mx-auto flex max-w-[1240px] items-center gap-7 px-4 py-[18px] sm:px-6">
+        <Link href="/" className="text-[21px] font-bold tracking-[-0.035em]">
+          haggle<span className="text-pine">.</span>
         </Link>
         {user && (
-          <nav className="hidden items-center gap-6 font-display text-base font-semibold uppercase tracking-wider text-board-muted sm:flex">
+          <nav className="flex gap-5 text-[15px] text-muted">
             {NAV.map((n) => (
-              <Link key={n.href} href={n.href} className="hover:text-flap-ink">
+              <Link key={n.href} href={n.href} className="hover:text-ink">
                 {n.label}
               </Link>
             ))}
           </nav>
         )}
-        <div className="ml-auto flex items-center gap-3 text-sm">
+        <div className="ml-auto flex items-center gap-3 text-sm text-muted">
           {user ? (
             <>
               {user.image && (
-                <Image src={user.image} alt="" width={28} height={28} className="rounded-full" unoptimized />
+                <Image src={user.image} alt="" width={26} height={26} className="rounded-full" unoptimized />
               )}
               <span className="hidden md:inline">{user.name}</span>
               <form
@@ -42,27 +41,16 @@ export async function Header() {
                   await signOut({ redirectTo: "/" });
                 }}
               >
-                <button className="font-display uppercase tracking-wider text-board-muted hover:text-flap-ink">
-                  Sign out
-                </button>
+                <button className="hover:text-ink">Sign out</button>
               </form>
             </>
           ) : (
-            <Link href="/signin" className="font-display font-semibold uppercase tracking-wider text-amber hover:underline">
+            <Link href="/signin" className="font-semibold text-ink hover:underline">
               Sign in
             </Link>
           )}
         </div>
       </div>
-      {user && (
-        <nav className="flex justify-around border-t border-flap pb-2 pt-1.5 font-display text-sm font-semibold uppercase tracking-wider text-board-muted sm:hidden">
-          {NAV.map((n) => (
-            <Link key={n.href} href={n.href} className="hover:text-flap-ink">
-              {n.label}
-            </Link>
-          ))}
-        </nav>
-      )}
     </header>
   );
 }

@@ -18,7 +18,7 @@ export function PreferencesForm({ profile }: { profile: Profile }) {
         <Button variant="secondary" disabled={pending}>
           {pending ? "Saving…" : "Save defaults"}
         </Button>
-        {state?.ok && <span className="text-sm text-ok">{state.ok}</span>}
+        {state?.ok && <span className="text-sm text-pine">{state.ok}</span>}
         {state?.error && <span className="text-sm text-bad">{state.error}</span>}
       </div>
     </form>

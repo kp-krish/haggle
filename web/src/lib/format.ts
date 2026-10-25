@@ -15,6 +15,12 @@ export function areaLabel(area?: string): string {
   return `${area.charAt(0).toUpperCase()}${area.slice(1)} campus`;
 }
 
+/** "North", "Central", "South" or "Anywhere": for compact meta lines. */
+export function areaShort(area?: string): string {
+  if (!area || area === "any") return "Anywhere";
+  return `${area.charAt(0).toUpperCase()}${area.slice(1)}`;
+}
+
 export function money(amount: number): string {
   return `$${amount.toLocaleString("en-US")}`;
 }

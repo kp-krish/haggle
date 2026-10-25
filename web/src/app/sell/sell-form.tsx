@@ -60,15 +60,15 @@ export function SellForm({ profile }: { profile: Profile }) {
   const busy = step !== "idle";
 
   return (
-    <form onSubmit={onSubmit} className="grid gap-8 md:grid-cols-[2fr_3fr]">
+    <form onSubmit={onSubmit} className="grid gap-10 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
       <div className="space-y-2">
-        <span className="block font-display text-sm font-semibold uppercase tracking-wider">Photo</span>
-        <label className="relative flex aspect-[4/3] cursor-pointer items-center justify-center overflow-hidden border-2 border-dashed border-ink/40 bg-card text-sm text-muted hover:border-pin">
+        <span className="block text-sm font-semibold">Photo</span>
+        <label className="relative flex aspect-square max-w-full cursor-pointer items-center justify-center overflow-hidden bg-wash text-sm text-muted hover:outline hover:outline-ink">
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element -- local blob preview
             <img src={preview} alt="Your item" className="absolute inset-0 size-full object-cover" />
           ) : (
-            <span>Choose a photo</span>
+            <span className="underline underline-offset-4">Choose a photo</span>
           )}
           <input
             type="file"
@@ -78,12 +78,12 @@ export function SellForm({ profile }: { profile: Profile }) {
             className="sr-only"
           />
         </label>
-        <p className="text-xs text-muted">
+        <p className="text-[13px] text-muted">
           A clear, well-lit photo. We&apos;ll write the title and description from it.
         </p>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-5">
         <Field label="A few words about it" hint="What it is, and anything worth knowing about its condition.">
           <textarea
             name="description"
@@ -110,12 +110,12 @@ export function SellForm({ profile }: { profile: Profile }) {
             {error}
           </p>
         )}
-        <Button className="w-full" disabled={busy}>
-          {step === "uploading" ? "Uploading photo…" : step === "saving" ? "Saving…" : "Continue"}
-        </Button>
-        <p className="text-xs text-muted">
-          You&apos;ll see a preview before anything is published.
-        </p>
+        <div className="flex flex-wrap items-center gap-4 border-t border-line pt-5">
+          <Button disabled={busy}>
+            {step === "uploading" ? "Uploading photo…" : step === "saving" ? "Saving…" : "Continue"}
+          </Button>
+          <span className="text-[13px] text-muted">You&apos;ll see a preview before anything is published.</span>
+        </div>
       </div>
     </form>
   );

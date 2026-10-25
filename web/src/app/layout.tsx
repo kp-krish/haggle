@@ -1,23 +1,13 @@
 import type { Metadata } from "next";
-import { Atkinson_Hyperlegible, Barlow_Condensed, IBM_Plex_Mono } from "next/font/google";
+import { Schibsted_Grotesk } from "next/font/google";
 
 import { Header } from "@/components/header";
 import "./globals.css";
 
-const atkinson = Atkinson_Hyperlegible({
-  variable: "--font-atkinson",
+const schibsted = Schibsted_Grotesk({
+  variable: "--font-schibsted",
   subsets: ["latin"],
-  weight: ["400", "700"],
-});
-const barlow = Barlow_Condensed({
-  variable: "--font-barlow",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-});
-const plexMono = IBM_Plex_Mono({
-  variable: "--font-plex-mono",
-  subsets: ["latin"],
-  weight: ["500", "600"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -28,16 +18,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     // Browser extensions add attributes to <html>/<body>; don't treat that as a mismatch.
-    <html
-      lang="en"
-      className={`${atkinson.variable} ${barlow.variable} ${plexMono.variable} h-full antialiased`}
-      suppressHydrationWarning
-    >
-      <body className="flex min-h-full flex-col" suppressHydrationWarning>
+    <html lang="en" className={`${schibsted.variable} h-full antialiased`} suppressHydrationWarning>
+      <body className="flex min-h-full flex-col text-[15px] leading-normal" suppressHydrationWarning>
         <Header />
         <div className="flex-1">{children}</div>
-        <footer className="border-t-2 border-ink">
-          <div className="mx-auto flex max-w-7xl flex-wrap justify-between gap-2 px-4 py-5 text-xs text-muted sm:px-6">
+        <footer className="border-t border-line">
+          <div className="mx-auto flex max-w-[1240px] flex-wrap justify-between gap-2 px-4 py-6 text-[13px] text-muted sm:px-6">
             <span>Haggle never handles money. Meet at a public spot and pay in person.</span>
             <span>Map data © OpenStreetMap contributors</span>
           </div>

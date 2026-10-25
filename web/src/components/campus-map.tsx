@@ -18,19 +18,19 @@ const CAMPUS: [[number, number], [number, number]] = [
   [-111.9232, 33.4268],
 ];
 
+// Quiet greys from the site palette; pine marks zones, ink marks meeting spots.
 const COLORS = {
-  paper: "#eef0e6",
-  lawn: "#cfe1bf",
-  water: "#c6dbdd",
-  residential: "#e6e7dc",
-  block: "#dcd6c6",
-  blockEdge: "#c9c1ac",
+  paper: "#f5f5f1",
+  lawn: "#e4ebdd",
+  water: "#dde6e6",
+  residential: "#f0f0ea",
+  block: "#e8e8e3",
+  blockEdge: "#dcdcd5",
   road: "#ffffff",
-  roadEdge: "#d3d6c8",
-  ink: "#22342b",
-  muted: "#5f6f66",
-  pin: "#1f5fd1",
-  spot: "#e0662a",
+  roadEdge: "#e2e2dc",
+  ink: "#161716",
+  muted: "#8a8c85",
+  pine: "#2e5b4f",
 };
 
 const HIDE = /boundary|shield|airport|label_(country|state|city|town|village)|aeroway|railway/;
@@ -64,63 +64,59 @@ function restyle(map: MapLibreMap) {
   }
 }
 
-function zonesGeoJSON(areas: Record<string, Area>, counts: Record<string, number>) {
+function zonesGeoJSON(areas: Record<string, Area>) {
   return {
     type: "FeatureCollection" as const,
     features: Object.entries(areas).map(([key, a]) => {
       const [[w, s], [e, n]] = a.bounds;
       return {
         type: "Feature" as const,
-        properties: { area: key, count: counts[key] ?? 0 },
+        properties: { area: key },
         geometry: { type: "Polygon" as const, coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] },
       };
     }),
   };
 }
 
-function zoneLabel(area: Area, count: number, active: boolean): HTMLElement {
+function zoneLabel(area: Area, active: boolean): HTMLElement {
   const el = document.createElement("div");
-  el.style.cssText = `font-family: var(--font-display); text-transform: uppercase; letter-spacing: .12em;
-    font-weight: 700; font-size: 13px; color: ${COLORS.ink}; display: flex; align-items: center; gap: 6px;
-    pointer-events: none; text-shadow: 0 0 3px ${COLORS.paper}, 0 0 3px ${COLORS.paper};`;
-  const badge = count
-    ? `<span style="background:${COLORS.pin};color:#fff;border-radius:999px;padding:0 7px;letter-spacing:0;font-size:12px;text-shadow:none">${count}</span>`
-    : "";
-  el.innerHTML = `<span style="${active ? `color:${COLORS.pin}` : ""}">${area.label}</span>${badge}`;
+  el.style.cssText = `font-family: var(--font-sans); font-weight: 600; font-size: 12px; pointer-events: none;
+    color: ${active ? COLORS.pine : COLORS.ink}; text-shadow: 0 0 3px #fff, 0 0 3px #fff;`;
+  el.textContent = area.label.replace(" campus", "");
   return el;
 }
 
 function spotMarker(place: Place, highlight: boolean): HTMLElement {
   const el = document.createElement("div");
-  const size = highlight ? 16 : 11;
+  const size = highlight ? 12 : 8;
   el.title = place.name + (place.curbside ? " (curbside)" : "");
   el.setAttribute("aria-label", el.title);
-  el.style.cssText = `width:${size}px;height:${size}px;background:${COLORS.spot};transform:rotate(45deg);
-    border:2px solid ${COLORS.paper};box-shadow:0 1px 3px rgb(0 0 0 / .35);cursor:default;`;
+  el.style.cssText = `width:${size}px;height:${size}px;background:${COLORS.ink};transform:rotate(45deg);
+    outline:2px solid #fff;cursor:default;`;
   return el;
 }
 
 /**
  * The real ASU Tempe map.
- *  - browse: zones with item counts; click a zone to filter listings.
+ *  - browse: all zones; click one to filter listings (other filters in `query` are kept).
  *  - focus:  one zone (a listing's area) and its meeting spots, fixed view.
  *  - pickup: a single meeting spot.
  */
 export function CampusMap({
   areas,
   places,
-  counts = {},
   activeArea,
   mode = "browse",
   spotId,
+  query = "",
   className = "",
 }: {
   areas: Record<string, Area>;
   places: Place[];
-  counts?: Record<string, number>;
   activeArea?: string;
   mode?: "browse" | "focus" | "pickup";
   spotId?: string;
+  query?: string;
   className?: string;
 }) {
   const container = useRef<HTMLDivElement>(null);
@@ -136,8 +132,10 @@ export function CampusMap({
       container: container.current,
       style: STYLE_URL,
       bounds: focus && mode === "focus" ? focus.bounds : CAMPUS,
-      fitBoundsOptions: { padding: 16 },
+      fitBoundsOptions: { padding: 10 },
       interactive,
+      // A small map in a scrolling page shouldn't capture the scroll wheel.
+      scrollZoom: false,
       dragRotate: false,
       pitchWithRotate: false,
       attributionControl: { compact: true },
@@ -150,28 +148,32 @@ export function CampusMap({
       const visibleAreas =
         mode === "browse" ? areas : activeArea && areas[activeArea] ? { [activeArea]: areas[activeArea] } : {};
 
-      map.addSource("zones", { type: "geojson", data: zonesGeoJSON(visibleAreas, counts) });
+      map.addSource("zones", { type: "geojson", data: zonesGeoJSON(visibleAreas) });
       map.addLayer({
         id: "zone-fill",
         type: "fill",
         source: "zones",
         paint: {
-          "fill-color": COLORS.pin,
-          "fill-opacity": ["case", ["==", ["get", "area"], activeArea ?? ""], 0.16, 0.05],
+          "fill-color": COLORS.pine,
+          "fill-opacity": ["case", ["==", ["get", "area"], activeArea ?? ""], 0.1, 0],
         },
       });
       map.addLayer({
         id: "zone-line",
         type: "line",
         source: "zones",
-        paint: { "line-color": COLORS.pin, "line-width": 1.5, "line-dasharray": [3, 2], "line-opacity": 0.6 },
+        paint: {
+          "line-color": COLORS.pine,
+          "line-width": 1,
+          "line-opacity": ["case", ["==", ["get", "area"], activeArea ?? ""], 1, 0.45],
+        },
       });
 
       if (mode !== "pickup") {
         for (const [key, a] of Object.entries(visibleAreas)) {
           markers.push(
-            new Marker({ element: zoneLabel(a, counts[key] ?? 0, key === activeArea), anchor: "left" })
-              .setLngLat([a.bounds[0][0] + 0.0006, a.bounds[1][1] - 0.0007])
+            new Marker({ element: zoneLabel(a, key === activeArea), anchor: "top-left" })
+              .setLngLat([a.bounds[0][0] + 0.0004, a.bounds[1][1] - 0.0002])
               .addTo(map),
           );
         }
@@ -190,7 +192,10 @@ export function CampusMap({
         map.on("click", "zone-fill", (e) => {
           const area = e.features?.[0]?.properties?.area as string | undefined;
           if (!area) return;
-          router.push(area === activeArea ? "/" : `/?area=${area}`, { scroll: false });
+          const params = new URLSearchParams(query);
+          if (area === activeArea) params.delete("area");
+          else params.set("area", area);
+          router.push(params.size ? `/?${params}` : "/", { scroll: false });
         });
         map.on("mouseenter", "zone-fill", () => (map.getCanvas().style.cursor = "pointer"));
         map.on("mouseleave", "zone-fill", () => (map.getCanvas().style.cursor = ""));
@@ -203,7 +208,7 @@ export function CampusMap({
     };
     // The map is rebuilt only when what it shows changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, spotId, activeArea, JSON.stringify(counts)]);
+  }, [mode, spotId, activeArea, query]);
 
   return <div ref={container} className={`h-full min-h-[320px] w-full ${className}`} role="region" aria-label="Map of ASU Tempe campus" />;
 }

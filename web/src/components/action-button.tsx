@@ -16,7 +16,7 @@ export function ActionButton({
   action: () => Promise<FormState>;
   children: React.ReactNode;
   pendingLabel?: string;
-  variant?: "primary" | "secondary" | "danger";
+  variant?: "primary" | "secondary" | "danger" | "quiet";
   className?: string;
 }) {
   const [state, run, pending] = useActionState<FormState>(() => action(), undefined);
@@ -26,7 +26,7 @@ export function ActionButton({
         {pending && pendingLabel ? pendingLabel : children}
       </Button>
       {state?.error && (
-        <span role="alert" className="text-xs text-bad">
+        <span role="alert" className="text-[13px] text-bad">
           {state.error}
         </span>
       )}

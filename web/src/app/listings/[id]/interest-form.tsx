@@ -23,14 +23,14 @@ export function InterestForm({
 
   if (state?.ok) {
     return (
-      <p role="status" className="border-2 border-ok/40 bg-ok-soft px-4 py-3 text-sm text-ok">
+      <p role="status" className="bg-pine-wash px-4 py-3 text-sm text-pine">
         {state.ok}
       </p>
     );
   }
 
   return (
-    <form action={action} className="space-y-4">
+    <form action={action} className="space-y-5">
       <div className="grid grid-cols-2 gap-3">
         <Field label="Start at" hint="Your agent's first offer.">
           <input
@@ -59,13 +59,12 @@ export function InterestForm({
           {state.error}
         </p>
       )}
-      <Button className="w-full" disabled={pending}>
-        {pending ? "Starting…" : "Start haggling"}
-      </Button>
-      <p className="text-xs text-muted">
-        The negotiation happens in your Discord messages. Nothing is final until you
-        and the seller both confirm.
-      </p>
+      <div className="space-y-2">
+        <Button disabled={pending}>{pending ? "Starting…" : "Start haggling"}</Button>
+        <p className="text-[13px] text-muted">
+          The negotiation happens in your Discord messages. Nothing is final until you and the seller both confirm.
+        </p>
+      </div>
     </form>
   );
 }

@@ -2,20 +2,30 @@ import Link from "next/link";
 
 import { auth } from "@/auth";
 import { CampusMap } from "@/components/campus-map-lazy";
-import { DealBoard } from "@/components/deal-board";
-import { ExampleBoard } from "@/components/example-board";
-import { ListingRow } from "@/components/listing-card";
-import { ButtonLink, Empty, INPUT } from "@/components/ui";
+import { ListingCard } from "@/components/listing-card";
+import { NowLine } from "@/components/now-line";
+import { ButtonLink, Empty } from "@/components/ui";
 import { api } from "@/lib/api";
 import { categoryLabel } from "@/lib/format";
-import type { BoardRow, BrowseResponse, PlacesResponse } from "@/lib/types";
+import type { BoardRow, BrowseResponse, Listing, PlacesResponse } from "@/lib/types";
 
+const ZONES = ["north", "central", "south"];
 const SORTS = [
   { value: "", label: "Newest" },
-  { value: "price_asc", label: "Price: low to high" },
-  { value: "price_desc", label: "Price: high to low" },
+  { value: "price_asc", label: "Price, low to high" },
+  { value: "price_desc", label: "Price, high to low" },
 ];
-const ZONES = ["north", "central", "south"];
+
+type Filters = { q: string; category: string; area: string; min: string; max: string; sort: string };
+
+/** A link to the same page with some filters changed (empty values are dropped). */
+function href(filters: Filters, change: Partial<Filters>): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries({ ...filters, ...change })) if (v) q.set(k, v);
+  return q.size ? `/?${q}` : "/";
+}
+
+const inZone = (l: Listing, zone: string) => !zone || l.area === zone || l.area === "any";
 
 export default async function Home(props: PageProps<"/">) {
   const session = await auth();
@@ -23,170 +33,230 @@ export default async function Home(props: PageProps<"/">) {
 
   const params = await props.searchParams;
   const pick = (k: string) => (typeof params[k] === "string" ? (params[k] as string) : "");
-  const filters = { q: pick("q"), category: pick("category"), sort: pick("sort") };
-  const area = ZONES.includes(pick("area")) ? pick("area") : "";
+  const filters: Filters = {
+    q: pick("q"),
+    category: pick("category"),
+    area: ZONES.includes(pick("area")) ? pick("area") : "",
+    min: pick("min").replace(/\D/g, ""),
+    max: pick("max").replace(/\D/g, ""),
+    sort: pick("sort"),
+  };
 
   const [browse, board, places] = await Promise.all([
-    api<BrowseResponse>("GET", "/web/listings", { query: filters }),
+    api<BrowseResponse>("GET", "/web/listings", { query: { q: filters.q, sort: filters.sort } }),
     api<{ rows: BoardRow[] }>("GET", "/web/board"),
     api<PlacesResponse>("GET", "/web/places"),
   ]);
 
-  // Counts per zone for the map; "anywhere" listings show in every zone.
-  const counts = Object.fromEntries(
-    ZONES.map((z) => [z, browse.listings.filter((l) => l.area === z || l.area === "any").length]),
+  // Search and sort happen on the server; area, category and price narrow here so the
+  // filter counts can show what each choice would give.
+  const priced = browse.listings.filter(
+    (l) => (!filters.min || l.asking >= Number(filters.min)) && (!filters.max || l.asking <= Number(filters.max)),
   );
-  const listings = area ? browse.listings.filter((l) => l.area === area || l.area === "any") : browse.listings;
-  const filtered = Boolean(area || filters.q || filters.category);
-  const zoneHref = (z: string) => {
-    const q = new URLSearchParams({ ...filters, ...(z ? { area: z } : {}) });
-    for (const [k, v] of [...q.entries()]) if (!v) q.delete(k);
-    return q.size ? `/?${q}` : "/";
-  };
+  const zoneCount = (z: string) => priced.filter((l) => inZone(l, z) && (!filters.category || l.category === filters.category)).length;
+  const catCount = (c: string) => priced.filter((l) => inZone(l, filters.area) && (!c || l.category === c)).length;
+  const listings = priced.filter((l) => inZone(l, filters.area) && (!filters.category || l.category === filters.category));
+  const categories = browse.categories.filter((c) => catCount(c) > 0 || c === filters.category);
+  const haggling = (id: string) => board.rows.filter((r) => r.listing_id === id && r.state === "negotiating").length;
 
   return (
-    <>
-      <section className="bg-panel text-flap-ink">
-        <div className="mx-auto max-w-7xl space-y-4 px-4 pt-6 pb-8 sm:px-6">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h1 className="font-display text-3xl font-bold uppercase tracking-wide">Live on campus</h1>
-              <p className="text-sm text-board-muted">
-                Agents haggling right now. Other students&apos; offers stay private; you see your own.
+    <div className="mx-auto max-w-[1240px] px-4 sm:px-6">
+      <NowLine initial={board.rows} />
+
+      <div className="grid gap-11 pt-8 pb-16 lg:grid-cols-[270px_minmax(0,1fr)]">
+        <aside className="grid content-start gap-7 sm:grid-cols-2 lg:sticky lg:top-4 lg:grid-cols-1">
+          <div className="sm:col-span-2 lg:col-span-1">
+            <h2 className="mb-2 text-[13px] font-semibold">Where</h2>
+            <div className="border border-line">
+              <div className="relative h-[230px]">
+                <CampusMap
+                  areas={places.areas}
+                  places={places.places}
+                  activeArea={filters.area || undefined}
+                  query={href(filters, { area: "" }).replace(/^\/\??/, "")}
+                />
+              </div>
+              <p className="border-t border-line px-2.5 py-2 text-[12.5px] text-muted">
+                Every pickup is at a busy public spot, marked ◆. Click a zone to narrow the list.
               </p>
             </div>
-            <ButtonLink href="/sell" variant="board">
-              Sell something
-            </ButtonLink>
           </div>
-          <DealBoard initial={board.rows} />
-        </div>
-      </section>
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        <div className="grid border-2 border-ink bg-card lg:grid-cols-[1.35fr_1fr]">
-          <div className="relative h-[380px] border-b-2 border-ink lg:h-[640px] lg:border-r-2 lg:border-b-0">
-            <CampusMap areas={places.areas} places={places.places} counts={counts} activeArea={area || undefined} />
-            <div className="pointer-events-none absolute bottom-3 left-3 flex gap-3 bg-card/90 px-3 py-1.5 text-xs text-muted">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="size-2.5 rotate-45 bg-spot" /> Public meeting spot
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="size-2.5 rounded-full bg-pin" /> Items in zone
-              </span>
+          <FilterList
+            title="Area"
+            items={[
+              { label: "All of campus", href: href(filters, { area: "" }), count: zoneCount(""), on: !filters.area },
+              ...ZONES.map((z) => ({
+                label: z.charAt(0).toUpperCase() + z.slice(1),
+                href: href(filters, { area: z }),
+                count: zoneCount(z),
+                on: filters.area === z,
+              })),
+            ]}
+          />
+
+          <FilterList
+            title="Category"
+            items={[
+              { label: "Everything", href: href(filters, { category: "" }), count: catCount(""), on: !filters.category },
+              ...categories.map((c) => ({
+                label: categoryLabel(c),
+                href: href(filters, { category: c }),
+                count: catCount(c),
+                on: filters.category === c,
+              })),
+            ]}
+          />
+
+          <form className="space-y-2">
+            <h2 className="text-[13px] font-semibold">Price</h2>
+            {Object.entries(filters).map(([k, v]) =>
+              v && !["min", "max"].includes(k) ? <input key={k} type="hidden" name={k} value={v} /> : null,
+            )}
+            <div className="flex items-center gap-2 text-sm text-muted">
+              <input name="min" defaultValue={filters.min} placeholder="$0" inputMode="numeric" aria-label="Minimum price" className="w-20 border border-line px-2 py-1.5 text-ink" />
+              to
+              <input name="max" defaultValue={filters.max} placeholder="Any" inputMode="numeric" aria-label="Maximum price" className="w-20 border border-line px-2 py-1.5 text-ink" />
+              <button className="font-semibold text-ink hover:underline">Apply</button>
             </div>
-          </div>
+          </form>
+        </aside>
 
-          <div className="flex min-h-0 flex-col lg:h-[640px]">
-            <div className="space-y-3 border-b-2 border-ink p-4">
-              <h2 className="font-display text-2xl font-bold uppercase tracking-wide">
-                {area ? `For sale · ${area} campus` : "For sale around campus"}
-              </h2>
-              <nav className="flex flex-wrap gap-1.5" aria-label="Zone">
-                {["", ...ZONES].map((z) => (
-                  <Link
-                    key={z || "all"}
-                    href={zoneHref(z)}
-                    scroll={false}
-                    className={`border-2 px-2.5 py-0.5 font-display text-sm font-semibold uppercase tracking-wider ${
-                      area === z ? "border-pin bg-pin text-white" : "border-line text-muted hover:border-ink hover:text-ink"
-                    }`}
-                  >
-                    {z || "All"}
-                  </Link>
-                ))}
-              </nav>
-              <form className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_auto_auto]">
-                {area && <input type="hidden" name="area" value={area} />}
-                <input
-                  name="q"
-                  defaultValue={filters.q}
-                  placeholder="Search: lamp, fridge…"
-                  aria-label="Search"
-                  className={`${INPUT} col-span-2 sm:col-span-1`}
-                />
-                <select name="category" defaultValue={filters.category} aria-label="Category" className={INPUT}>
-                  <option value="">All categories</option>
-                  {browse.categories.map((c) => (
-                    <option key={c} value={c}>
-                      {categoryLabel(c)}
-                    </option>
-                  ))}
-                </select>
-                <select name="sort" defaultValue={filters.sort} aria-label="Sort" className={INPUT}>
+        <main>
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-4">
+            <h1 className="text-3xl font-semibold leading-tight tracking-[-0.025em]">
+              {filters.area ? `For sale on ${filters.area} campus` : "For sale around campus"}{" "}
+              <span className="font-normal text-faint">
+                {listings.length} item{listings.length === 1 ? "" : "s"}
+              </span>
+            </h1>
+            <form className="text-sm text-muted">
+              {Object.entries(filters).map(([k, v]) => (v && k !== "sort" ? <input key={k} type="hidden" name={k} value={v} /> : null))}
+              <label>
+                Sort by{" "}
+                <select name="sort" defaultValue={filters.sort} className="border-b border-line bg-transparent py-0.5 text-ink">
                   {SORTS.map((s) => (
                     <option key={s.value} value={s.value}>
                       {s.label}
                     </option>
                   ))}
                 </select>
-                <button className="col-span-2 border-2 border-ink px-4 py-1.5 font-display font-semibold uppercase tracking-wider hover:bg-paper sm:col-span-3">
-                  Search
-                </button>
-              </form>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {listings.length ? (
-                listings.map((l) => <ListingRow key={l.listing_id} listing={l} />)
-              ) : (
-                <div className="p-4">
-                  <Empty>
-                    {filtered ? (
-                      <>
-                        Nothing here yet.{" "}
-                        <Link href="/" className="text-pin underline">
-                          Show everything
-                        </Link>
-                      </>
-                    ) : (
-                      "Nothing listed yet. Be the first."
-                    )}
-                  </Empty>
-                </div>
-              )}
-            </div>
+              </label>{" "}
+              <button className="font-semibold text-ink hover:underline">Go</button>
+            </form>
           </div>
-        </div>
-      </main>
-    </>
+
+          <form className="mb-7 flex border-b border-ink">
+            {Object.entries(filters).map(([k, v]) => (v && k !== "q" ? <input key={k} type="hidden" name={k} value={v} /> : null))}
+            <input
+              name="q"
+              defaultValue={filters.q}
+              placeholder="Search for a mini fridge, a lamp, a textbook…"
+              aria-label="Search"
+              className="flex-1 bg-transparent py-2.5 text-[17px] placeholder:text-faint focus:outline-none"
+            />
+            <button className="font-semibold">Search</button>
+          </form>
+
+          {listings.length ? (
+            <ul className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-x-6.5 gap-y-8.5">
+              {listings.map((l) => (
+                <li key={l.listing_id}>
+                  <ListingCard listing={l} haggling={haggling(l.listing_id)} />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Empty>
+              {Object.values(filters).some(Boolean) ? (
+                <>
+                  Nothing matches yet.{" "}
+                  <Link href="/" className="text-ink underline">
+                    Show everything
+                  </Link>
+                </>
+              ) : (
+                <>
+                  Nothing listed yet.{" "}
+                  <Link href="/sell" className="text-ink underline">
+                    Sell the first thing
+                  </Link>
+                </>
+              )}
+            </Empty>
+          )}
+
+          <Promises />
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function FilterList({
+  title,
+  items,
+}: {
+  title: string;
+  items: { label: string; href: string; count: number; on: boolean }[];
+}) {
+  return (
+    <div>
+      <h2 className="mb-2 text-[13px] font-semibold">{title}</h2>
+      <ul className="grid gap-0.5 text-[14.5px]">
+        {items.map((i) => (
+          <li key={i.label}>
+            <Link
+              href={i.href}
+              scroll={false}
+              aria-current={i.on ? "true" : undefined}
+              className={`flex justify-between py-[3px] hover:text-ink ${i.on ? "font-semibold text-ink" : "text-muted"}`}
+            >
+              {i.label}
+              <span className="tabular font-normal text-faint">{i.count}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Promises() {
+  return (
+    <div className="mt-14 grid gap-6 border-t border-line pt-5 sm:grid-cols-3">
+      {[
+        ["Your limit stays yours", "Only your agent knows how low or high you'll go. The other side never sees it."],
+        ["The haggling happens in Discord", "Watch every offer in your messages and confirm when it's right."],
+        ["Pickup is public and planned", "A time that fits both schedules, at a spot like the Memorial Union."],
+      ].map(([title, body]) => (
+        <p key={title} className="max-w-[34ch] text-sm text-muted">
+          <strong className="mb-0.5 block font-semibold text-ink">{title}</strong>
+          {body}
+        </p>
+      ))}
+    </div>
   );
 }
 
 function Intro() {
   return (
-    <>
-      <section className="bg-panel text-flap-ink">
-        <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 lg:grid-cols-[1fr_1.3fr] lg:items-center">
-          <div className="space-y-5">
-            <h1 className="font-display text-5xl font-bold uppercase leading-[0.95] tracking-wide text-balance">
-              Your agent haggles. You just show up.
-            </h1>
-            <p className="max-w-md text-board-muted">
-              Buy and sell with other ASU students. Set a secret limit, watch the offers flip in
-              your Discord messages, then meet at a busy public spot on campus.
-            </p>
-            <ButtonLink href="/signin" variant="board">
-              Sign in with Discord
-            </ButtonLink>
-          </div>
-          <div className="space-y-2">
-            <p className="font-display text-xs uppercase tracking-[0.16em] text-board-muted">Example deals</p>
-            <ExampleBoard />
-          </div>
+    <main className="mx-auto max-w-[1240px] px-4 sm:px-6">
+      <div className="grid gap-10 border-b border-line py-16 lg:grid-cols-[1.1fr_1fr] lg:items-end">
+        <h1 className="text-5xl font-semibold leading-[1.05] tracking-[-0.035em] text-balance">
+          Buy and sell with students at ASU. Your agent does the haggling.
+        </h1>
+        <div className="space-y-5">
+          <p className="max-w-md text-muted">
+            List something in a minute or name your price for something you like. Your agent negotiates in Discord,
+            keeps your limit to itself, and sets up a pickup at a busy spot on campus.
+          </p>
+          <ButtonLink href="/signin">Sign in with Discord</ButtonLink>
         </div>
-      </section>
-      <main className="mx-auto grid max-w-7xl gap-6 px-4 py-10 sm:px-6 md:grid-cols-3">
-        {[
-          ["List it or find it", "Post a photo and a price, or pick something you want and set a budget range."],
-          ["Your limit stays yours", "Only your agent knows how low or high you'll go. The other side never sees it."],
-          ["Meet somewhere public", "Pickups are set at busy campus spots like the Memorial Union or Hayden Library."],
-        ].map(([title, body]) => (
-          <div key={title} className="space-y-1 border-t-2 border-ink pt-3">
-            <h2 className="font-display text-xl font-bold uppercase tracking-wide">{title}</h2>
-            <p className="text-sm text-muted">{body}</p>
-          </div>
-        ))}
-      </main>
-    </>
+      </div>
+      <div className="pb-16">
+        <Promises />
+      </div>
+    </main>
   );
 }
