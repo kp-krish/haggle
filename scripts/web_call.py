@@ -1,6 +1,6 @@
 """Call the deployed website API as a given Discord user (signs like the Next.js server).
 
-    python scripts/web_call.py GET /web/listings --user 1234 [--query "q=lamp"] [--body '{}']
+python scripts/web_call.py GET /web/listings --user 1234 [--query "q=lamp"] [--body '{}']
 """
 
 import argparse

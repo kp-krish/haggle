@@ -26,8 +26,9 @@ def main() -> None:
     existing = read_env(TARGET) if TARGET.exists() else {}
     out = stack_outputs()
     web = json.loads(
-        boto3.client("secretsmanager", region_name=REGION)
-        .get_secret_value(SecretId=out["WebSecretArn"])["SecretString"]
+        boto3.client("secretsmanager", region_name=REGION).get_secret_value(
+            SecretId=out["WebSecretArn"]
+        )["SecretString"]
     )
     values = {
         "AUTH_SECRET": existing.get("AUTH_SECRET") or secrets.token_urlsafe(48),

@@ -387,3 +387,57 @@ def test_badge_rules():
     assert badges.badges({"done_count": 12, "no_show_count": 2}) == []
     one_slip = {"done_count": 30, "done_as_seller": 30, "no_show_count": 1}
     assert [b["id"] for b in badges.badges(one_slip)] == ["trusted"]
+
+
+# ---------- live board and places
+
+
+def put_deal(deal_id, state, **extra):
+    store.table("deals").put_item(
+        Item={
+            "deal_id": deal_id,
+            "listing_id": "lst_1",
+            "want_id": "w",
+            "seller_id": SELLER,
+            "buyer_id": BUYER,
+            "title": "Mini fridge",
+            "asking": 70,
+            "state": state,
+            "round": 3,
+            "last_offer_seller": 58,
+            "last_offer_buyer": 49,
+            "updated_at": store.now_iso(),
+            "created_at": store.now_iso(),
+            **extra,
+        }
+    )
+
+
+def test_board_hides_other_peoples_offers(api):
+    put_deal("d_live", "negotiating")
+    put_deal("d_sold", "done", agreed_price=55)
+    put_deal("d_agreed", "confirming", agreed_price=60)
+    put_deal("d_old", "no_deal")
+    _, body = call("GET", "/web/board", user=STRANGER)
+    rows = {r["state"]: r for r in body["rows"]}
+    assert set(rows) == {"negotiating", "done", "confirming"}  # no-deal rows are hidden
+    for r in rows.values():
+        assert r["mine"] is False and r["deal_id"] is None
+        assert "seller_offer" not in r and "buyer_offer" not in r
+    assert rows["negotiating"]["price"] is None and rows["negotiating"]["rounds"] == 3
+    assert rows["confirming"]["price"] is None  # agreed but not confirmed: no price yet
+    assert rows["done"]["price"] == 55
+
+
+def test_board_shows_your_own_live_offers(api):
+    put_deal("d_live", "negotiating")
+    _, body = call("GET", "/web/board", user=BUYER)
+    [row] = body["rows"]
+    assert row["mine"] and row["side"] == "buyer" and row["deal_id"] == "d_live"
+    assert row["seller_offer"] == 58 and row["buyer_offer"] == 49
+
+
+def test_places_for_the_map(api):
+    _, body = call("GET", "/web/places")
+    assert set(body["areas"]) == {"north", "central", "south"}
+    assert all(33.40 < p["lat"] < 33.43 and -111.95 < p["lng"] < -111.92 for p in body["places"])

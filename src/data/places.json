@@ -1,59 +1,90 @@
 {
   "campus": "ASU Tempe",
   "utc_offset_hours": -7,
-  "_note": "Coordinates are approximate; verify each spot before launch.",
+  "_source": "Coordinates from OpenStreetMap (2026-10-25). Entrances are approximate; check on site before launch.",
   "areas": {
-    "north": { "lat": 33.4225, "lng": -111.9350 },
-    "central": { "lat": 33.4180, "lng": -111.9340 },
-    "south": { "lat": 33.4135, "lng": -111.9290 }
+    "north": {
+      "label": "North campus",
+      "lat": 33.4228,
+      "lng": -111.9330,
+      "bounds": [[-111.9400, 33.4205], [-111.9255, 33.4255]]
+    },
+    "central": {
+      "label": "Central campus",
+      "lat": 33.4183,
+      "lng": -111.9340,
+      "bounds": [[-111.9400, 33.4160], [-111.9255, 33.4205]]
+    },
+    "south": {
+      "label": "South campus",
+      "lat": 33.4138,
+      "lng": -111.9295,
+      "bounds": [[-111.9400, 33.4105], [-111.9255, 33.4160]]
+    }
   },
   "places": [
     {
       "place_id": "mu-north",
       "name": "Memorial Union north entrance",
       "area": "central",
-      "lat": 33.4180,
-      "lng": -111.9346,
+      "lat": 33.41800,
+      "lng": -111.93436,
       "curbside": false
     },
     {
       "place_id": "hayden-north",
       "name": "Hayden Library north entrance",
-      "area": "north",
-      "lat": 33.4196,
-      "lng": -111.9361,
+      "area": "central",
+      "lat": 33.41930,
+      "lng": -111.93470,
       "curbside": false
     },
     {
+      "place_id": "old-main",
+      "name": "Old Main front lawn",
+      "area": "north",
+      "lat": 33.42053,
+      "lng": -111.93395,
+      "curbside": false
+    },
+    {
+      "place_id": "tooker-dining",
+      "name": "Tooker House dining entrance",
+      "area": "north",
+      "lat": 33.42320,
+      "lng": -111.93226,
+      "curbside": false
+    },
+    {
+      "place_id": "fulton-ps",
+      "name": "Fulton Center parking structure, ground level",
+      "area": "north",
+      "lat": 33.42302,
+      "lng": -111.93430,
+      "curbside": true
+    },
+    {
       "place_id": "sdfc-front",
-      "name": "Sun Devil Fitness Complex front desk",
-      "area": "central",
-      "lat": 33.4165,
-      "lng": -111.9318,
+      "name": "Sun Devil Fitness Complex front entrance",
+      "area": "south",
+      "lat": 33.41546,
+      "lng": -111.93200,
       "curbside": true
     },
     {
       "place_id": "barrett-courtyard",
-      "name": "Barrett Honors College main courtyard",
+      "name": "Barrett Honors College courtyard",
       "area": "south",
-      "lat": 33.4140,
-      "lng": -111.9268,
+      "lat": 33.41544,
+      "lng": -111.92744,
       "curbside": false
     },
     {
-      "place_id": "vds-clubhouse",
-      "name": "Vista del Sol clubhouse",
+      "place_id": "vds-center",
+      "name": "Vista del Sol community center",
       "area": "south",
-      "lat": 33.4130,
-      "lng": -111.9290,
-      "curbside": true
-    },
-    {
-      "place_id": "rural-ps",
-      "name": "Rural Road parking structure, ground level",
-      "area": "north",
-      "lat": 33.4205,
-      "lng": -111.9265,
+      "lat": 33.41313,
+      "lng": -111.92903,
       "curbside": true
     }
   ]

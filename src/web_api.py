@@ -45,7 +45,7 @@ from interactions import (
     stop_deal,
     user_defaults,
 )
-from scheduler import format_slot
+from scheduler import format_slot, load_places
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
@@ -443,6 +443,58 @@ def update_preferences(user_id: str, data: dict) -> dict:
     return {"area": area, "windows": windows, "style": style}
 
 
+BOARD_STATES = ("negotiating", "scheduling", "confirming", "confirmed", "done")
+BOARD_ROWS = 12
+
+
+def board(user_id: str) -> dict:
+    """Recent deals for the live board.
+
+    Other students' deals show only status, round count and, once both sides have
+    confirmed, the sold price: live offers would let a third buyer see how far a
+    seller has already conceded. The viewer's own deals show their live offers.
+    """
+    items = store.table("deals").scan(
+        FilterExpression=Attr("state").is_in(list(BOARD_STATES)),
+        ProjectionExpression=(
+            "deal_id, listing_id, title, asking, #s, #r, agreed_price, seller_id, buyer_id, "
+            "last_offer_seller, last_offer_buyer, updated_at, created_at"
+        ),
+        ExpressionAttributeNames={"#s": "state", "#r": "round"},
+    )["Items"]
+    items.sort(key=lambda d: d.get("updated_at") or d.get("created_at", ""), reverse=True)
+    rows = []
+    for d in items[:BOARD_ROWS]:
+        mine = user_id in (d.get("seller_id"), d.get("buyer_id"))
+        sold = d["state"] in ("confirmed", "done")
+        row = {
+            "deal_id": d["deal_id"] if mine else None,
+            "listing_id": d["listing_id"],
+            "title": d.get("title", ""),
+            "asking": int(d["asking"]),
+            "state": d["state"],
+            "rounds": int(d.get("round", 0)),
+            "price": int(d["agreed_price"])
+            if d.get("agreed_price") is not None and (sold or mine)
+            else None,
+            "mine": mine,
+            "updated_at": d.get("updated_at") or d.get("created_at"),
+        }
+        if mine:
+            row["side"] = "seller" if d.get("seller_id") == user_id else "buyer"
+            for side in ("seller", "buyer"):
+                offer = d.get(f"last_offer_{side}")
+                row[f"{side}_offer"] = int(offer) if offer is not None else None
+        rows.append(row)
+    return {"rows": rows}
+
+
+def campus_places(user_id: str) -> dict:
+    """Zones and public meeting spots for the website's map."""
+    places = load_places()
+    return {"areas": places["areas"], "places": places["places"]}
+
+
 def stop_my_deal(user_id: str, deal_id: str) -> dict:
     return {"message": stop_deal(user_id, deal_id)}
 
@@ -458,6 +510,8 @@ def _run(job: str, **fields) -> None:
 
 ID = r"([A-Za-z0-9_]+)"
 ROUTES = [
+    ("GET", r"/web/board", lambda u, m, q, b: board(u)),
+    ("GET", r"/web/places", lambda u, m, q, b: campus_places(u)),
     ("GET", r"/web/listings", lambda u, m, q, b: browse(u, q)),
     ("POST", r"/web/listings", lambda u, m, q, b: create_listing(u, b)),
     ("GET", rf"/web/listings/{ID}", lambda u, m, q, b: listing_detail(u, m[1])),
