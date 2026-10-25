@@ -27,8 +27,14 @@ export function Flaps({
   );
 }
 
+/** A price on a single split-flap card: legible, and still part of the board's voice. */
 export function Price({ amount, size = "md" }: { amount: number; size?: "sm" | "md" | "lg" }) {
-  return <Flaps text={`$${amount}`} size={size} className="tabular" />;
+  const sizes = { sm: "text-sm px-2 py-0.5", md: "text-lg px-2.5 py-1", lg: "text-3xl px-3.5 py-2" };
+  return (
+    <span className={`flap tabular font-mono font-semibold leading-none ${sizes[size]}`} aria-label={`$${amount}`}>
+      ${amount}
+    </span>
+  );
 }
 
 const LIGHTS: Record<Tone, string> = {

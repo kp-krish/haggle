@@ -27,11 +27,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
+    // Browser extensions add attributes to <html>/<body>; don't treat that as a mismatch.
     <html
       lang="en"
       className={`${atkinson.variable} ${barlow.variable} ${plexMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="flex min-h-full flex-col">
+      <body className="flex min-h-full flex-col" suppressHydrationWarning>
         <Header />
         <div className="flex-1">{children}</div>
         <footer className="border-t-2 border-ink">
