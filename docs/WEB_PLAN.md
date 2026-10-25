@@ -62,7 +62,7 @@ Computed from the counts the bot already records (split by role):
 
 ## Phases
 
-### W1 — Backend web API (Python, SAM)
+### W1 — Backend web API (Python, SAM) ✅
 - `web_api.py` behind `ANY /web/{proxy+}` on the existing HTTP API; HMAC request
   signing with a secret in Secrets Manager.
 - Routes: list/search listings, listing detail, presigned upload, create/preview/
@@ -74,12 +74,12 @@ Computed from the counts the bot already records (split by role):
 - Per-role pickup counters and `badges.py`.
 - Tests for every route, including signature checks and "can't act as someone else".
 
-### W2 — Next.js scaffold (`web/`)
+### W2 — Next.js scaffold (`web/`) ✅
 - Next.js (App Router, TypeScript), Tailwind, Auth.js Discord provider with
   `identify guilds.members.read`, sign-in rejected for non-members.
 - Server-only API client that signs requests; design tokens; layout and nav.
 
-### W3 — Pages
+### W3 — Pages ✅
 - Browse, listing detail + interest form, sell flow (upload → preview → publish),
   My Haggle, profile. Responsive, accessible, fast on phones.
 
