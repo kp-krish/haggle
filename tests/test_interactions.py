@@ -140,7 +140,9 @@ def test_floor_is_encrypted_and_never_stored_in_plain(aws, jobs):
     assert body(resp)["type"] == 5
     item = store.table("listings").get_item(Key={"listing_id": listing_id})["Item"]
     assert item["status"] == "processing" and item["style"] == "balanced"
-    assert "45" not in json.dumps({k: v for k, v in item.items() if k != "floor_enc"}, default=str)
+    # No field holds the floor in plain text (checked per value: timestamps can contain 45).
+    plain = [v for k, v in item.items() if k != "floor_enc"]
+    assert not any(str(v).strip("$") == "45" for v in plain)
     assert store.decrypt_limit(item["floor_enc"].value, f"listing#{listing_id}", SELLER) == 45
     jobs.assert_called_once()
     assert jobs.call_args.kwargs == {"listing_id": listing_id}
