@@ -83,7 +83,9 @@ Computed from the counts the bot already records (split by role):
 - Browse, listing detail + interest form, sell flow (upload → preview → publish),
   My Haggle, profile. Responsive, accessible, fast on phones.
 
-### W4 — Amplify hosting
+### W4 — Amplify hosting ✅
+- Live at https://main.d1c9777x2cw3c4.amplifyapp.com (app `haggle-web`); every push to
+  `main` redeploys. Setup: `scripts/amplify_setup.py`, build: `amplify.yml`.
 - Amplify app connected to the GitHub repo (`web/` as the app root), env vars,
   Discord OAuth redirect URL. Optional custom domain.
 
