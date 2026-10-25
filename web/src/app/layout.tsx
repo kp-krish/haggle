@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Schibsted_Grotesk } from "next/font/google";
 
 import { Header } from "@/components/header";
+import { themeBootScript } from "@/lib/theme";
 import "./globals.css";
 
 const schibsted = Schibsted_Grotesk({
@@ -19,6 +20,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     // Browser extensions add attributes to <html>/<body>; don't treat that as a mismatch.
     <html lang="en" className={`${schibsted.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        {/* Apply a saved light/dark choice before first paint. */}
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+      </head>
       <body className="flex min-h-full flex-col text-[15px] leading-normal" suppressHydrationWarning>
         <Header />
         <div className="flex-1">{children}</div>

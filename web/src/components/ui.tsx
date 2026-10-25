@@ -36,7 +36,7 @@ export function Trust({ badges }: { badges: Badge[] }) {
 const BUTTON =
   "inline-flex items-center justify-center gap-2 px-5 py-2.5 text-[15px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pine";
 const VARIANTS = {
-  primary: "bg-ink text-paper hover:bg-[#2c2e2b]",
+  primary: "bg-ink text-paper hover:opacity-85",
   secondary: "border border-ink bg-paper text-ink hover:bg-wash",
   danger: "border border-bad/40 bg-paper text-bad hover:bg-bad/5",
   quiet: "px-0 py-0 text-muted underline-offset-4 hover:text-ink hover:underline",

@@ -4,8 +4,9 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import { Map as MapLibreMap, Marker, setWorkerUrl } from "maplibre-gl";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { THEME_EVENT, isDark } from "@/lib/theme";
 import type { Area, Place } from "@/lib/types";
 
 // Copied into /public by scripts/copy-map-worker.mjs on install.
@@ -19,7 +20,7 @@ const CAMPUS: [[number, number], [number, number]] = [
 ];
 
 // Quiet greys from the site palette; pine marks zones, ink marks meeting spots.
-const COLORS = {
+const LIGHT = {
   paper: "#f5f5f1",
   lawn: "#e4ebdd",
   water: "#dde6e6",
@@ -31,7 +32,23 @@ const COLORS = {
   ink: "#161716",
   muted: "#8a8c85",
   pine: "#2e5b4f",
+  halo: "#ffffff",
 };
+const DARK: typeof LIGHT = {
+  paper: "#1b1c1a",
+  lawn: "#1f2822",
+  water: "#1a2326",
+  residential: "#1e1f1c",
+  block: "#272925",
+  blockEdge: "#30322d",
+  road: "#353732",
+  roadEdge: "#24261f",
+  ink: "#e9eae5",
+  muted: "#8c8e87",
+  pine: "#8fbcae",
+  halo: "#1b1c1a",
+};
+type Palette = typeof LIGHT;
 
 const HIDE = /boundary|shield|airport|label_(country|state|city|town|village)|aeroway|railway/;
 
@@ -41,7 +58,7 @@ function paint(map: MapLibreMap, id: string, prop: string, value: unknown) {
 }
 
 /** Recolour the base map so it reads as campus paper, not a navigation app. */
-function restyle(map: MapLibreMap) {
+function restyle(map: MapLibreMap, COLORS: Palette) {
   for (const layer of map.getStyle().layers ?? []) {
     const { id, type } = layer;
     if (HIDE.test(id)) {
@@ -78,21 +95,22 @@ function zonesGeoJSON(areas: Record<string, Area>) {
   };
 }
 
-function zoneLabel(area: Area, active: boolean): HTMLElement {
+function zoneLabel(area: Area, active: boolean, COLORS: Palette): HTMLElement {
   const el = document.createElement("div");
   el.style.cssText = `font-family: var(--font-sans); font-weight: 600; font-size: 12px; pointer-events: none;
-    color: ${active ? COLORS.pine : COLORS.ink}; text-shadow: 0 0 3px #fff, 0 0 3px #fff;`;
+    color: ${active ? COLORS.pine : COLORS.ink};
+    text-shadow: 0 0 3px ${COLORS.halo}, 0 0 3px ${COLORS.halo};`;
   el.textContent = area.label.replace(" campus", "");
   return el;
 }
 
-function spotMarker(place: Place, highlight: boolean): HTMLElement {
+function spotMarker(place: Place, highlight: boolean, COLORS: Palette): HTMLElement {
   const el = document.createElement("div");
   const size = highlight ? 12 : 8;
   el.title = place.name + (place.curbside ? " (curbside)" : "");
   el.setAttribute("aria-label", el.title);
   el.style.cssText = `width:${size}px;height:${size}px;background:${COLORS.ink};transform:rotate(45deg);
-    outline:2px solid #fff;cursor:default;`;
+    outline:2px solid ${COLORS.halo};cursor:default;`;
   return el;
 }
 
@@ -121,9 +139,24 @@ export function CampusMap({
 }) {
   const container = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  // Client-only component (see campus-map-lazy), so the theme can be read on first render.
+  const [dark, setDark] = useState(isDark);
+
+  // Follow the site theme: the header toggle and the operating system both count.
+  useEffect(() => {
+    const update = () => setDark(isDark());
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    media.addEventListener("change", update);
+    window.addEventListener(THEME_EVENT, update);
+    return () => {
+      media.removeEventListener("change", update);
+      window.removeEventListener(THEME_EVENT, update);
+    };
+  }, []);
 
   useEffect(() => {
     if (!container.current) return;
+    const COLORS = dark ? DARK : LIGHT;
     const interactive = mode === "browse";
     const spot = places.find((p) => p.place_id === spotId);
     const focus = activeArea && areas[activeArea];
@@ -144,7 +177,7 @@ export function CampusMap({
 
     const markers: Marker[] = [];
     map.on("load", () => {
-      restyle(map);
+      restyle(map, COLORS);
       const visibleAreas =
         mode === "browse" ? areas : activeArea && areas[activeArea] ? { [activeArea]: areas[activeArea] } : {};
 
@@ -172,7 +205,7 @@ export function CampusMap({
       if (mode !== "pickup") {
         for (const [key, a] of Object.entries(visibleAreas)) {
           markers.push(
-            new Marker({ element: zoneLabel(a, key === activeArea), anchor: "top-left" })
+            new Marker({ element: zoneLabel(a, key === activeArea, COLORS), anchor: "top-left" })
               .setLngLat([a.bounds[0][0] + 0.0004, a.bounds[1][1] - 0.0002])
               .addTo(map),
           );
@@ -184,7 +217,7 @@ export function CampusMap({
         : places;
       for (const p of shown) {
         markers.push(
-          new Marker({ element: spotMarker(p, mode !== "browse") }).setLngLat([p.lng, p.lat]).addTo(map),
+          new Marker({ element: spotMarker(p, mode !== "browse", COLORS) }).setLngLat([p.lng, p.lat]).addTo(map),
         );
       }
 
@@ -208,7 +241,7 @@ export function CampusMap({
     };
     // The map is rebuilt only when what it shows changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, spotId, activeArea, query]);
+  }, [mode, spotId, activeArea, query, dark]);
 
   return <div ref={container} className={`h-full min-h-[320px] w-full ${className}`} role="region" aria-label="Map of ASU Tempe campus" />;
 }

@@ -19,6 +19,42 @@
   --color-warn: #8a5a00;
 }
 
+/*
+ * Dark mode: follows the system unless the visitor picked a theme in the header
+ * (stored as data-theme on <html>). Same calm palette, inverted, pine lifted.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-paper: #121312;
+    --color-ink: #e9eae5;
+    --color-muted: #a0a29b;
+    --color-faint: #6b6d67;
+    --color-line: #2a2c29;
+    --color-wash: #1b1c1a;
+    --color-pine: #8fbcae;
+    --color-pine-wash: #1d2a26;
+    --color-bad: #f08a7e;
+    --color-warn: #e0b25a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --color-paper: #121312;
+  --color-ink: #e9eae5;
+  --color-muted: #a0a29b;
+  --color-faint: #6b6d67;
+  --color-line: #2a2c29;
+  --color-wash: #1b1c1a;
+  --color-pine: #8fbcae;
+  --color-pine-wash: #1d2a26;
+  --color-bad: #f08a7e;
+  --color-warn: #e0b25a;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
 body {
   background: var(--color-paper);
   color: var(--color-ink);

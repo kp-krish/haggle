@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { auth, signOut } from "@/auth";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const NAV = [
   { href: "/", label: "Browse" },
@@ -28,7 +29,8 @@ export async function Header() {
             ))}
           </nav>
         )}
-        <div className="ml-auto flex items-center gap-3 text-sm text-muted">
+        <div className="ml-auto flex items-center gap-4 text-sm text-muted">
+          <ThemeToggle />
           {user ? (
             <>
               {user.image && (
