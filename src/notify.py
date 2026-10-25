@@ -121,6 +121,21 @@ def edit_message(channel_id: str, message_id: str, payload: dict) -> None:
     _request("PATCH", f"/channels/{channel_id}/messages/{message_id}", payload)
 
 
+def display_name(user_id: str) -> str:
+    """A name that reads correctly anywhere, e.g. "Krish (@krish123)".
+
+    A bare <@id> mention shows as "@unknown-user" in DMs when the reader's client has
+    not loaded that user, so the name is spelled out, with the mention kept alongside.
+    """
+    try:
+        member = _request("GET", f"/guilds/{store.discord_secret()['guild_id']}/members/{user_id}")
+        user = member["user"]
+        shown = member.get("nick") or user.get("global_name") or user["username"]
+        return f"**{shown}** (@{user['username']}, <@{user_id}>)"
+    except Exception:
+        return f"<@{user_id}>"
+
+
 # ---------- Message building
 
 

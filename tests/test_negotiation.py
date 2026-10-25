@@ -332,3 +332,16 @@ def test_change_limit_mid_deal(sfn):
     assert "Updated to $68" in submit(BUYER, "68")
     want = store.table("wants").get_item(Key={"want_id": "wnt_1"})["Item"]
     assert store.decrypt_limit(want["ceiling_enc"].value, "want#wnt_1", BUYER) == 68
+
+
+def test_display_name_spells_out_the_name_for_dms():
+    import notify
+
+    member = {"nick": None, "user": {"username": "krish123", "global_name": "Krish"}}
+    with (
+        mock.patch("notify._request", return_value=member),
+        mock.patch("store.discord_secret", return_value={"guild_id": "g1"}),
+    ):
+        assert notify.display_name("42") == "**Krish** (@krish123, <@42>)"
+    with mock.patch("notify._request", side_effect=RuntimeError("discord down")):
+        assert notify.display_name("42") == "<@42>"

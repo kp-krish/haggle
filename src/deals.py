@@ -153,8 +153,9 @@ def finalize(deal_id: str) -> dict:
     )
     # Identities are revealed only now, after both students confirmed.
     done = f"**Deal confirmed:** {deal.get('title', 'the item')} for ${deal['agreed_price']}."
-    notify.dm(deal["seller_id"], {"content": f"{done} The buyer is <@{deal['buyer_id']}>."})
-    notify.dm(deal["buyer_id"], {"content": f"{done} The seller is <@{deal['seller_id']}>."})
+    buyer, seller = notify.display_name(deal["buyer_id"]), notify.display_name(deal["seller_id"])
+    notify.dm(deal["seller_id"], {"content": f"{done} The buyer is {buyer}."})
+    notify.dm(deal["buyer_id"], {"content": f"{done} The seller is {seller}."})
     close_others(deal)
     return {"result": "confirmed"}
 
