@@ -23,3 +23,7 @@ Thumbs.db
 
 # Local scratch
 .dist/
+
+# Demo video sources and renders
+demo.mkv
+demo/
