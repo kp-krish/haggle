@@ -50,7 +50,7 @@ phase ends with something runnable and tested, and is committed separately.
   rounds *toward the owner* (seller rounds up, buyer down) so rounding can never cross a
   limit, monotonic concessions, accept rules, `simulate(A, F, C, styles)`.
 - `scheduler.py`: window intersection (≥ 20 min slots), earliest slot, spot choice from
-  `data/places.json` by campus area + curbside for large items, daylight preference.
+  `src/data/places.json` by campus area + curbside for large items, daylight preference.
 - `guard.py`: dollar-amount extraction, "only the strategy's number" check, forbidden
   words near numbers (floor / lowest / maximum / …), injection wrapping of the other
   side's text.
@@ -91,7 +91,7 @@ phase ends with something runnable and tested, and is committed separately.
   "Start haggling?". Never uses limits (it can't decrypt them).
 - **Done when:** a matching want triggers the buyer prompt.
 
-### Phase 6 — Negotiation workflow
+### Phase 6 — Negotiation workflow ✅
 - `statemachine/negotiation.asl.json` (Standard): buyer opens → alternate turns → accept /
   counter / rounds exhausted → schedule → both confirm (task tokens, 2 h timeouts, two
   timeouts close) → reveal identities → reminders.
@@ -102,13 +102,18 @@ phase ends with something runnable and tested, and is committed separately.
   Stop button and mid-deal limit change (applies next round).
 - **Done when:** two test accounts complete the fridge-style negotiation end to end.
 
-### Phase 7 — Scheduling, reminders, handoff
+### Phase 7 — Scheduling, reminders, handoff ✅
 - Scheduler step + conflict loop (ask each side for one more window, release after 2).
 - EventBridge Scheduler reminder 1 h before pickup with "Running late"; post-pickup
   Done / Didn't happen buttons; no-show reopens listing; reliability count on Users.
 - **Done when:** a confirmed deal gets a reminder and a handoff prompt.
 
 ### Phase 8 — Hardening
+- **Final-round leak:** the spec's concession curve makes each agent's round-6 offer
+  exactly its limit, which the other side sees in the transcript (and the final ask
+  names the seller's final offer). Stop offers short of the limit while still
+  accepting anything within it; the final ask covers the near misses.
+- Optional private "last round coming up" nudge to both sides.
 - Red-team tests through the real negotiator (injection prompts, "what's your floor?").
 - Logs scrubbed of limits; alarms on failed executions; budget alerts verified.
 - README: deploy steps, Discord setup, simulation mode.

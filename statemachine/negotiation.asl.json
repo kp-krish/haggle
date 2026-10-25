@@ -7,24 +7,49 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${DealsFunctionArn}",
-        "Payload": { "action": "start", "deal_id.$": "$.deal_id" }
+        "Payload": {
+          "action": "start",
+          "deal_id.$": "$.deal_id"
+        }
       },
-      "ResultSelector": { "deal_id.$": "$.Payload.deal_id", "next.$": "$.Payload.next" },
+      "ResultSelector": {
+        "deal_id.$": "$.Payload.deal_id",
+        "next.$": "$.Payload.next"
+      },
       "ResultPath": "$",
       "Retry": [
         {
-          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
         }
       ],
-      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "Failed" }],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
       "Next": "WhoseTurn"
     },
     "WhoseTurn": {
       "Type": "Choice",
-      "Choices": [{ "Variable": "$.next.side", "StringEquals": "seller", "Next": "SellerTurn" }],
+      "Choices": [
+        {
+          "Variable": "$.next.side",
+          "StringEquals": "seller",
+          "Next": "SellerTurn"
+        }
+      ],
       "Default": "BuyerTurn"
     },
     "SellerTurn": {
@@ -33,7 +58,11 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${SellerNegotiatorArn}",
-        "Payload": { "deal_id.$": "$.deal_id", "t.$": "$.next.t", "side": "seller" }
+        "Payload": {
+          "deal_id.$": "$.deal_id",
+          "t.$": "$.next.t",
+          "side": "seller"
+        }
       },
       "ResultSelector": {
         "action.$": "$.Payload.action",
@@ -43,13 +72,26 @@
       "ResultPath": "$.turn",
       "Retry": [
         {
-          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
         }
       ],
-      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "Failed" }],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
       "Next": "AfterTurn"
     },
     "BuyerTurn": {
@@ -58,7 +100,11 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${BuyerNegotiatorArn}",
-        "Payload": { "deal_id.$": "$.deal_id", "t.$": "$.next.t", "side": "buyer" }
+        "Payload": {
+          "deal_id.$": "$.deal_id",
+          "t.$": "$.next.t",
+          "side": "buyer"
+        }
       },
       "ResultSelector": {
         "action.$": "$.Payload.action",
@@ -68,21 +114,46 @@
       "ResultPath": "$.turn",
       "Retry": [
         {
-          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
         }
       ],
-      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "Failed" }],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
       "Next": "AfterTurn"
     },
     "AfterTurn": {
       "Type": "Choice",
       "Choices": [
-        { "Variable": "$.turn.action", "StringEquals": "offer", "Next": "Pause" },
-        { "Variable": "$.turn.action", "StringEquals": "accept", "Next": "Agreed" },
-        { "Variable": "$.turn.action", "StringEquals": "walk", "Next": "FinalAsk" }
+        {
+          "Variable": "$.turn.action",
+          "StringEquals": "offer",
+          "Next": "Pause"
+        },
+        {
+          "Variable": "$.turn.action",
+          "StringEquals": "accept",
+          "Next": "Agreed"
+        },
+        {
+          "Variable": "$.turn.action",
+          "StringEquals": "walk",
+          "Next": "FinalAsk"
+        }
       ],
       "Default": "Stopped"
     },
@@ -94,7 +165,10 @@
     },
     "Advance": {
       "Type": "Pass",
-      "Parameters": { "deal_id.$": "$.deal_id", "next.$": "$.turn.next" },
+      "Parameters": {
+        "deal_id.$": "$.deal_id",
+        "next.$": "$.turn.next"
+      },
       "Next": "WhoseTurn"
     },
     "FinalAsk": {
@@ -112,7 +186,15 @@
       },
       "TimeoutSeconds": 7200,
       "ResultPath": null,
-      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "NoDeal" }],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NoDeal"
+        }
+      ],
       "Next": "FinalAgreed"
     },
     "FinalAgreed": {
@@ -121,22 +203,174 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${DealsFunctionArn}",
-        "Payload": { "action": "agreed", "deal_id.$": "$.deal_id" }
+        "Payload": {
+          "action": "agreed",
+          "deal_id.$": "$.deal_id"
+        }
       },
       "ResultPath": null,
-      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "Failed" }],
-      "Next": "Confirm"
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "StartScheduling"
     },
     "Agreed": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${DealsFunctionArn}",
-        "Payload": { "action": "agreed", "deal_id.$": "$.deal_id", "price.$": "$.turn.price" }
+        "Payload": {
+          "action": "agreed",
+          "deal_id.$": "$.deal_id",
+          "price.$": "$.turn.price"
+        }
       },
       "ResultPath": null,
-      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "Failed" }],
-      "Next": "Confirm"
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "StartScheduling"
+    },
+    "StartScheduling": {
+      "Type": "Pass",
+      "Comment": "Up to two extra rounds of asking for windows.",
+      "Parameters": {
+        "deal_id.$": "$.deal_id",
+        "attempts": 0
+      },
+      "Next": "Schedule"
+    },
+    "Schedule": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${DealsFunctionArn}",
+        "Payload": {
+          "action": "schedule",
+          "deal_id.$": "$.deal_id"
+        }
+      },
+      "Comment": "Earliest shared slot and a public spot, by code. Students see only the result.",
+      "ResultSelector": {
+        "found.$": "$.Payload.found"
+      },
+      "ResultPath": "$.schedule",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "SlotFound"
+    },
+    "SlotFound": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.schedule.found",
+          "BooleanEquals": true,
+          "Next": "Confirm"
+        },
+        {
+          "Variable": "$.attempts",
+          "NumericGreaterThanEquals": 2,
+          "Next": "Released"
+        }
+      ],
+      "Default": "AskForTimes"
+    },
+    "AskForTimes": {
+      "Type": "Parallel",
+      "Comment": "Each agent privately asks its student for one more free time.",
+      "Branches": [
+        {
+          "StartAt": "SellerAddsTime",
+          "States": {
+            "SellerAddsTime": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+              "Parameters": {
+                "FunctionName": "${DealsFunctionArn}",
+                "Payload": {
+                  "action": "request_window",
+                  "deal_id.$": "$.deal_id",
+                  "side": "seller",
+                  "token.$": "$$.Task.Token"
+                }
+              },
+              "TimeoutSeconds": 7200,
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "BuyerAddsTime",
+          "States": {
+            "BuyerAddsTime": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+              "Parameters": {
+                "FunctionName": "${DealsFunctionArn}",
+                "Payload": {
+                  "action": "request_window",
+                  "deal_id.$": "$.deal_id",
+                  "side": "buyer",
+                  "token.$": "$$.Task.Token"
+                }
+              },
+              "TimeoutSeconds": 7200,
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Released"
+        }
+      ],
+      "Next": "NextAttempt"
+    },
+    "NextAttempt": {
+      "Type": "Pass",
+      "Parameters": {
+        "deal_id.$": "$.deal_id",
+        "attempts.$": "States.MathAdd($.attempts, 1)"
+      },
+      "Next": "Schedule"
     },
     "Confirm": {
       "Type": "Parallel",
@@ -184,7 +418,15 @@
         }
       ],
       "ResultPath": null,
-      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "Declined" }],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "Declined"
+        }
+      ],
       "Next": "Finalize"
     },
     "Finalize": {
@@ -192,7 +434,10 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${DealsFunctionArn}",
-        "Payload": { "action": "finalize", "deal_id.$": "$.deal_id" }
+        "Payload": {
+          "action": "finalize",
+          "deal_id.$": "$.deal_id"
+        }
       },
       "ResultPath": null,
       "End": true
@@ -202,7 +447,24 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${DealsFunctionArn}",
-        "Payload": { "action": "declined", "deal_id.$": "$.deal_id", "error.$": "$.error.Error" }
+        "Payload": {
+          "action": "declined",
+          "deal_id.$": "$.deal_id",
+          "error.$": "$.error.Error"
+        }
+      },
+      "ResultPath": null,
+      "End": true
+    },
+    "Released": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${DealsFunctionArn}",
+        "Payload": {
+          "action": "released",
+          "deal_id.$": "$.deal_id"
+        }
       },
       "ResultPath": null,
       "End": true
@@ -212,7 +474,10 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${DealsFunctionArn}",
-        "Payload": { "action": "no_deal", "deal_id.$": "$.deal_id" }
+        "Payload": {
+          "action": "no_deal",
+          "deal_id.$": "$.deal_id"
+        }
       },
       "ResultPath": null,
       "End": true
@@ -222,11 +487,16 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${DealsFunctionArn}",
-        "Payload": { "action": "failed", "deal_id.$": "$.deal_id" }
+        "Payload": {
+          "action": "failed",
+          "deal_id.$": "$.deal_id"
+        }
       },
       "ResultPath": null,
       "End": true
     },
-    "Stopped": { "Type": "Succeed" }
+    "Stopped": {
+      "Type": "Succeed"
+    }
   }
 }

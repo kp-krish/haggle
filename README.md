@@ -18,7 +18,7 @@ src/
   strategy.py    offer math and accept rule (pure, no AWS)
   guard.py       output checks and prompt-injection wrapping (pure)
   scheduler.py   pickup window overlap and meeting spot (pure)
-data/places.json curated public meeting spots
+src/data/places.json  curated public meeting spots
 tests/           unit and property tests
 ```
 

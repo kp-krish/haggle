@@ -13,6 +13,8 @@ import base64
 import json
 import logging
 import os
+import time
+from datetime import datetime
 from functools import cache
 
 import boto3
@@ -23,6 +25,7 @@ from nacl.signing import VerifyKey
 import notify
 import store
 from notify import EPHEMERAL, private, respond
+from scheduler import format_slot
 from strategy import STYLE_BETA
 
 log = logging.getLogger()
@@ -34,8 +37,9 @@ MAX_PRICE = 10_000
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
 OPEN_LISTING = ("preview", "open")
 OPEN_WANT = ("open",)
-CLOSED_DEAL = ("closed", "stopped", "done", "no_deal", "passed", "confirmed")
-ACTIVE_DEAL = ("starting", "negotiating", "confirming")
+CLOSED_DEAL = ("closed", "stopped", "done", "no_deal", "passed", "no_show")
+ACTIVE_DEAL = ("starting", "negotiating", "scheduling", "confirming")
+MAX_NO_SHOWS = 3  # missed pickups before a student is paused from new deals
 
 
 def _response(status: int, body: dict) -> dict:
@@ -130,7 +134,16 @@ def _save_user_defaults(user_id: str, area: str, windows_text: str, style: str) 
 # ---------- Slash commands
 
 
+def _paused(user_id: str) -> bool:
+    return int(_user_defaults(user_id).get("no_show_count", 0)) >= MAX_NO_SHOWS
+
+
+PAUSED = "Your account is paused from new deals after repeated missed pickups."
+
+
 def cmd_sell(interaction: dict, user_id: str) -> dict:
+    if _paused(user_id):
+        return private(PAUSED)
     opts = _options(interaction)
     attachment = interaction["data"]["resolved"]["attachments"][opts["photo"]["value"]]
     if not (attachment.get("content_type") or "").startswith("image/"):
@@ -186,6 +199,8 @@ def cmd_sell(interaction: dict, user_id: str) -> dict:
 
 
 def cmd_want(interaction: dict, user_id: str) -> dict:
+    if _paused(user_id):
+        return private(PAUSED)
     opts = _options(interaction)
     want_id = store.new_id("wnt")
     store.table("wants").put_item(
@@ -275,11 +290,13 @@ def cmd_deals(interaction: dict, user_id: str) -> dict:
         lines.append("**Looking for**")
         lines += [f"• {w['query']} `{w['want_id']}`" for w in items["wants"]]
     if items["deals"]:
-        lines.append("**Negotiations**")
-        lines += [
-            f"• {d.get('title', 'Deal')} — {d.get('state', 'open')} `{d['deal_id']}`"
-            for d in items["deals"]
-        ]
+        lines.append("**Deals**")
+        for d in items["deals"]:
+            status = d.get("state", "open")
+            if status == "confirmed" and d.get("slot_start"):
+                status = f"pickup {format_slot(datetime.fromisoformat(d['slot_start']))}"
+                status += f", {d.get('spot_name', '')}"
+            lines.append(f"• {d.get('title', 'Deal')} — {status} `{d['deal_id']}`")
     if not lines:
         return private("Nothing open right now. Use `/sell` or `/want` to start.")
     return private("\n".join(lines))
@@ -491,7 +508,8 @@ def press_haggle(interaction: dict, user_id: str, deal_id: str) -> dict:
     try:
         execution = _sfn().start_execution(
             stateMachineArn=os.environ["STATE_MACHINE_ARN"],
-            name=deal_id,
+            # Names can't be reused for 90 days, and a relisted item may be haggled again.
+            name=f"{deal_id}-{int(time.time())}",
             input=json.dumps({"deal_id": deal_id}),
         )
     except Exception:
@@ -677,8 +695,135 @@ def submit_limit(interaction: dict, user_id: str, deal_id: str) -> dict:
     return private(f"Updated to ${amount}. Your agent uses it from the next round.")
 
 
+# ---------- Pickup: extra windows, running late, handoff
+
+
+def press_window(interaction: dict, user_id: str, deal_id: str) -> dict:
+    deal, side = _deal_for(deal_id, user_id)
+    if not side or not deal.get(f"window_token_{side}"):
+        return private("That request has expired.")
+    return respond(
+        notify.MODAL,
+        {
+            "custom_id": f"window:{deal_id}",
+            "title": "Another time you're free",
+            "components": [
+                notify.text_input(
+                    "windows",
+                    "When else can you meet in the next few days?",
+                    placeholder="e.g. Fri 2-5pm, Sunday afternoon",
+                    paragraph=True,
+                )
+            ],
+        },
+    )
+
+
+def submit_window(interaction: dict, user_id: str, deal_id: str) -> dict:
+    """Parsing free text needs the model, so it happens in the listing agent."""
+    deal, side = _deal_for(deal_id, user_id)
+    if not side or not deal.get(f"window_token_{side}"):
+        return private("That request has expired.")
+    text = _modal_values(interaction).get("windows", "")
+    run_async("window", interaction, deal_id=deal_id, side=side, text=text)
+    return respond(notify.DEFERRED_MESSAGE, {"flags": EPHEMERAL})
+
+
+def press_nowindow(interaction: dict, user_id: str, deal_id: str) -> dict:
+    deal, side = _deal_for(deal_id, user_id)
+    token = deal.get(f"window_token_{side}") if side else None
+    if token:
+        try:
+            _sfn().send_task_failure(taskToken=token, error="NoWindow", cause=side)
+        except Exception:
+            log.exception("window token for %s/%s rejected", deal_id, side)
+        store.table("deals").update_item(
+            Key={"deal_id": deal_id}, UpdateExpression=f"REMOVE window_token_{side}"
+        )
+    return respond(
+        notify.UPDATE_MESSAGE, {"content": "Okay, I'll release the deal.", "components": []}
+    )
+
+
+def press_late(interaction: dict, user_id: str, deal_id: str) -> dict:
+    deal, side = _deal_for(deal_id, user_id)
+    if not side or deal.get("state") != "confirmed":
+        return private("That pickup is no longer scheduled.")
+    other = "buyer" if side == "seller" else "seller"
+    notify.dm(
+        deal[f"{other}_id"],
+        {
+            "content": f"**Haggle:** {notify.display_name(user_id)} is running a few minutes "
+            f"late for the {deal.get('title', 'item')} pickup."
+        },
+    )
+    return private("I let them know you're running late.")
+
+
+def _bump(user_id: str, counter: str) -> None:
+    store.table("users").update_item(
+        Key={"user_id": user_id},
+        UpdateExpression=f"ADD {counter} :one",
+        ExpressionAttributeValues={":one": 1},
+    )
+
+
+def press_done(interaction: dict, user_id: str, deal_id: str) -> dict:
+    deal, side = _deal_for(deal_id, user_id)
+    if not side or deal.get("state") != "confirmed":
+        return respond(
+            notify.UPDATE_MESSAGE, {"content": "Thanks, already recorded.", "components": []}
+        )
+    other = "buyer" if side == "seller" else "seller"
+    try:
+        store.table("deals").update_item(
+            Key={"deal_id": deal_id},
+            UpdateExpression=f"SET handoff_{side} = :done",
+            ConditionExpression=Attr(f"handoff_{side}").not_exists(),
+            ExpressionAttributeValues={":done": "done"},
+        )
+    except store.conditional_failed():
+        return respond(
+            notify.UPDATE_MESSAGE, {"content": "Thanks, already recorded.", "components": []}
+        )
+    _bump(deal[f"{other}_id"], "done_count")
+    if deal.get(f"handoff_{other}") == "done":
+        _set_deal_state(deal_id, "done", expect=("confirmed",))
+    return respond(
+        notify.UPDATE_MESSAGE,
+        {"content": "Great, glad it worked out. Thanks for using Haggle!", "components": []},
+    )
+
+
+def press_noshow(interaction: dict, user_id: str, deal_id: str) -> dict:
+    """'Didn't happen' from either side: count it against the other student, relist the
+    item and let the seller's agent move on to the next buyer."""
+    deal, side = _deal_for(deal_id, user_id)
+    if not side:
+        return private("That pickup isn't yours.")
+    try:
+        _set_deal_state(deal_id, "no_show", expect=("confirmed",))
+    except store.conditional_failed():
+        return respond(
+            notify.UPDATE_MESSAGE, {"content": "Thanks, already recorded.", "components": []}
+        )
+    other = "buyer" if side == "seller" else "seller"
+    _bump(deal[f"{other}_id"], "no_show_count")
+    _lambda().invoke(
+        FunctionName=os.environ["DEALS_FUNCTION"],
+        InvocationType="Event",
+        Payload=json.dumps({"action": "reopen", "deal_id": deal_id}).encode(),
+    )
+    message = (
+        "Sorry it didn't happen. I've relisted your item."
+        if side == "seller"
+        else "Sorry it didn't happen. I'll keep looking for you."
+    )
+    return respond(notify.UPDATE_MESSAGE, {"content": message, "components": []})
+
+
 COMMANDS = {"sell": cmd_sell, "want": cmd_want, "deals": cmd_deals, "stop": cmd_stop}
-MODALS = {"sell": submit_sell, "want": submit_want, "limit": submit_limit}
+MODALS = {"sell": submit_sell, "want": submit_want, "limit": submit_limit, "window": submit_window}
 BUTTONS = {
     "publish": press_publish,
     "cancel": press_cancel,
@@ -690,6 +835,11 @@ BUTTONS = {
     "final_no": press_final_no,
     "stop": press_stop,
     "limit": press_limit,
+    "window": press_window,
+    "nowindow": press_nowindow,
+    "late": press_late,
+    "done": press_done,
+    "noshow": press_noshow,
 }
 
 

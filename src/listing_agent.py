@@ -12,6 +12,7 @@ encrypted by the interactions handler before this function was invoked.
 from __future__ import annotations
 
 import io
+import json
 import logging
 import os
 import urllib.request
@@ -279,9 +280,51 @@ def job_want(event: dict) -> None:
     )
 
 
-JOBS = {"sell": job_sell, "publish": job_publish, "want": job_want}
+@cache
+def _sfn():
+    return boto3.client("stepfunctions")
 
-FAILED_STATUS = {"sell": ("listings", "listing_id"), "publish": ("listings", "listing_id")}
+
+def job_window(event: dict) -> None:
+    """One more free time during scheduling: add it to this student's own record and
+    let the waiting workflow try again. Only that student's windows are touched."""
+    deal_id, side = event["deal_id"], event["side"]
+    deal = store.table("deals").get_item(Key={"deal_id": deal_id})["Item"]
+    token = deal.get(f"window_token_{side}")
+    if not token:
+        notify.edit_original(event["app_id"], event["token"], {"content": "That request expired."})
+        return
+
+    added = parse_windows(event.get("text", ""))
+    if not added:
+        notify.edit_original(
+            event["app_id"],
+            event["token"],
+            {"content": "I couldn't read a time from that. Try something like `Fri 2-5pm`."},
+        )
+        return
+
+    table, key = ("listings", "listing_id") if side == "seller" else ("wants", "want_id")
+    record_id = deal[key]
+    record = store.table(table).get_item(Key={key: record_id})["Item"]
+    _set(table, {key: record_id}, windows=list(record.get("windows") or []) + added)
+    store.table("deals").update_item(
+        Key={"deal_id": deal_id}, UpdateExpression=f"REMOVE window_token_{side}"
+    )
+    _sfn().send_task_success(taskToken=token, output=json.dumps({"side": side}))
+    notify.edit_original(
+        event["app_id"], event["token"], {"content": "Thanks! Checking for a pickup time again."}
+    )
+
+
+JOBS = {"sell": job_sell, "publish": job_publish, "want": job_want, "window": job_window}
+
+# Which record to mark as errored when a job fails.
+FAILED_STATUS = {
+    "sell": ("listings", "listing_id"),
+    "publish": ("listings", "listing_id"),
+    "want": ("wants", "want_id"),
+}
 
 
 def handler(event: dict, context) -> None:
@@ -290,11 +333,12 @@ def handler(event: dict, context) -> None:
         JOBS[job](event)
     except Exception:
         log.exception("job %s failed", job)
-        table, id_field = FAILED_STATUS.get(job, ("wants", "want_id"))
-        try:
-            _set(table, {id_field: event[id_field]}, status="error")
-        except Exception:
-            log.exception("could not mark %s as error", event.get(id_field))
+        if job in FAILED_STATUS:
+            table, id_field = FAILED_STATUS[job]
+            try:
+                _set(table, {id_field: event[id_field]}, status="error")
+            except Exception:
+                log.exception("could not mark %s as error", event.get(id_field))
         try:
             notify.edit_original(
                 event["app_id"],

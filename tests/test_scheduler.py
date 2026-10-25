@@ -96,3 +96,28 @@ def test_schedule_returns_slot_and_place():
     pickup = schedule(a, b, "central", "central")
     assert pickup.slot.start == at(29, 16, 30)
     assert pickup.place["place_id"] == "mu-north"
+
+
+def test_format_slot_reads_naturally():
+    from scheduler import format_slot
+
+    assert format_slot(at(29, 16, 30)) == "Thu Oct 29, 4:30 pm"
+    assert format_slot(at(29, 9)) == "Thu Oct 29, 9:00 am"
+
+
+def test_windows_from_records_skips_bad_entries():
+    from scheduler import windows_from_records
+
+    raw = [
+        {"start": at(29, 15).isoformat(), "end": at(29, 17).isoformat()},
+        {"start": "nope"},
+        {"start": at(29, 16).isoformat(), "end": at(29, 18).isoformat()},
+    ]
+    assert windows_from_records(raw) == [Window(at(29, 15), at(29, 18))]
+    assert windows_from_records(None) == []
+
+
+def test_not_before_leaves_lead_time():
+    a = [Window(at(29, 15), at(29, 18))]
+    assert earliest_slot(a, a, not_before=at(29, 16, 2)).start == at(29, 16, 5)
+    assert earliest_slot(a, a, not_before=at(29, 17, 50)) is None

@@ -35,6 +35,8 @@ def _clear_caches():
         interactions._lambda,
         interactions._client,
         deals._sfn,
+        deals._scheduler,
+        listing_agent._sfn,
         listing_agent._s3,
         llm._client,
         notify._dm_channel,

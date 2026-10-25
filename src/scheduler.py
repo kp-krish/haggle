@@ -16,7 +16,7 @@ HORIZON_DAYS = 7
 DAYLIGHT = (time(8, 0), time(19, 0))
 SLOT_STEP_MINUTES = 5
 
-PLACES_PATH = Path(__file__).resolve().parent.parent / "data" / "places.json"
+PLACES_PATH = Path(__file__).resolve().parent / "data" / "places.json"
 CAMPUS_TZ = timezone(timedelta(hours=-7), "MST")  # Arizona: no daylight saving
 
 
@@ -115,12 +115,19 @@ def _round_up(dt: datetime, minutes: int = SLOT_STEP_MINUTES) -> datetime:
 
 
 def earliest_slot(
-    a: list[Window], b: list[Window], min_minutes: int = MIN_SLOT_MINUTES
+    a: list[Window],
+    b: list[Window],
+    min_minutes: int = MIN_SLOT_MINUTES,
+    not_before: datetime | None = None,
 ) -> Window | None:
     """Earliest ``min_minutes`` slot both sides can make, preferring daylight hours.
 
     Slots start on a 5-minute mark so pickup times read naturally (4:30, not 4:27).
+    ``not_before`` leaves lead time for confirmations and the reminder.
     """
+    if not_before is not None:
+        a = [Window(max(w.start, not_before), w.end) for w in a if w.end > not_before]
+        b = [Window(max(w.start, not_before), w.end) for w in b if w.end > not_before]
     overlaps = intersect(a, b, min_minutes)
     for candidates in (clip_to_daylight(overlaps), overlaps):
         for w in candidates:
@@ -129,6 +136,31 @@ def earliest_slot(
             if end <= w.end:
                 return Window(start, end)
     return None
+
+
+def format_slot(dt: datetime) -> str:
+    """Campus-time label like "Thu Oct 29, 4:30 pm" (portable: no %-I on Windows)."""
+    local = dt.astimezone(CAMPUS_TZ)
+    hour = local.strftime("%I").lstrip("0")
+    return f"{local:%a %b} {local.day}, {hour}:{local:%M} {local:%p}".replace("AM", "am").replace(
+        "PM", "pm"
+    )
+
+
+def windows_from_records(raw: list[dict] | None) -> list[Window]:
+    """Stored ``[{"start": iso, "end": iso}]`` back into windows (bad entries skipped)."""
+    out = []
+    for item in raw or []:
+        try:
+            out.append(
+                Window(
+                    _aware(datetime.fromisoformat(item["start"])),
+                    _aware(datetime.fromisoformat(item["end"])),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+    return merge(out)
 
 
 def load_places(path: Path = PLACES_PATH) -> dict:
@@ -168,9 +200,10 @@ def schedule(
     area_b: str,
     large: bool = False,
     places: dict | None = None,
+    not_before: datetime | None = None,
 ) -> Pickup | None:
     """Earliest shared slot plus meeting spot, or None when the windows never overlap."""
-    slot = earliest_slot(a, b)
+    slot = earliest_slot(a, b, not_before=not_before)
     if slot is None:
         return None
     return Pickup(slot, choose_spot(places or load_places(), area_a, area_b, large))

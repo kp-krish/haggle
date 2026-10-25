@@ -2,6 +2,7 @@
 
 import json
 import re
+from datetime import datetime, timedelta
 from unittest import mock
 
 import pytest
@@ -10,9 +11,19 @@ import deals
 import interactions
 import negotiator
 import store
+from scheduler import CAMPUS_TZ
 
 SELLER, BUYER, OTHER_BUYER = "111", "222", "333"
 ASKING, FLOOR, CEILING = 70, 47, 63
+
+
+def tomorrow(hour: int) -> str:
+    day = datetime.now(CAMPUS_TZ).date() + timedelta(days=1)
+    return datetime(day.year, day.month, day.day, hour, tzinfo=CAMPUS_TZ).isoformat()
+
+
+SELLER_WINDOWS = [{"start": tomorrow(14), "end": tomorrow(18)}]
+BUYER_WINDOWS = [{"start": tomorrow(16), "end": tomorrow(19)}]
 
 
 def polite(system: str, prompt: str, **kwargs) -> str:
@@ -35,6 +46,8 @@ def setup_deal(floor=FLOOR, ceiling=CEILING, buyer=BUYER, deal_id="deal_1", want
                 "floor_enc": store.encrypt_limit(floor, "listing#lst_1", SELLER),
                 "created_at": "2026-10-24T00:00:00+00:00",
                 "category": "appliances",
+                "area": "central",
+                "windows": SELLER_WINDOWS,
             }
         )
     store.table("wants").put_item(
@@ -47,6 +60,8 @@ def setup_deal(floor=FLOOR, ceiling=CEILING, buyer=BUYER, deal_id="deal_1", want
             "ceiling_enc": store.encrypt_limit(ceiling, f"want#{want_id}", buyer),
             "created_at": "2026-10-24T00:00:00+00:00",
             "category": "appliances",
+            "area": "central",
+            "windows": BUYER_WINDOWS,
         }
     )
     store.table("deals").put_item(
@@ -190,6 +205,7 @@ def test_stopped_deal_takes_no_more_turns(dms, monkeypatch):
 def agree(deal_id, monkeypatch):
     turn = run(deal_id, monkeypatch)
     deals.agreed(deal_id, turn["price"])
+    assert deals.schedule(deal_id) == {"found": True}
     return turn["price"]
 
 
@@ -268,9 +284,9 @@ def test_start_haggling_starts_one_workflow(sfn):
         ExpressionAttributeValues={":s": "proposed"},
     )
     assert "haggling" in press(BUYER, "haggle:deal_1")["data"]["content"]
-    sfn.start_execution.assert_called_once_with(
-        stateMachineArn="arn:sm", name="deal_1", input='{"deal_id": "deal_1"}'
-    )
+    kwargs = sfn.start_execution.call_args.kwargs
+    assert kwargs["stateMachineArn"] == "arn:sm" and kwargs["name"].startswith("deal_1-")
+    assert kwargs["input"] == '{"deal_id": "deal_1"}'
     deal = store.table("deals").get_item(Key={"deal_id": "deal_1"})["Item"]
     assert deal["state"] == "starting" and deal["execution_arn"] == "arn:exec:1"
     assert "already answered" in press(BUYER, "haggle:deal_1")["data"]["content"]
@@ -416,7 +432,7 @@ def test_buyer_accepts_final_offer_and_both_confirm(sfn, dms, monkeypatch):
     # The workflow then records the seller agent's own final offer as the price.
     deals.handler({"action": "agreed", "deal_id": "deal_1"}, None)
     deal = store.table("deals").get_item(Key={"deal_id": "deal_1"})["Item"]
-    assert deal["state"] == "confirming" and deal["agreed_price"] == 35
+    assert deal["state"] == "scheduling" and deal["agreed_price"] == 35
 
 
 def test_buyer_declines_final_offer(sfn, dms, monkeypatch):
