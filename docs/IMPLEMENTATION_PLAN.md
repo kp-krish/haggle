@@ -70,7 +70,7 @@ phase ends with something runnable and tested, and is committed separately.
 - **Done when:** `sam build --use-container && sam deploy` succeeds and the stack is empty
   but healthy.
 
-### Phase 3 — Discord interactions
+### Phase 3 — Discord interactions ✅
 - `interactions.py`: Ed25519 verification, PING/PONG, deferred replies (3-second rule),
   routing for `/sell`, `/want`, `/deals`, `/stop`, modal submits, button clicks;
   async hand-off (async Lambda invoke or Step Functions `SendTaskSuccess`).
@@ -80,13 +80,13 @@ phase ends with something runnable and tested, and is committed separately.
   app ID / public key / bot token (I store them in Secrets Manager, never in git).
 - **Done when:** `/deals` answers in the test server.
 
-### Phase 4 — Listing and wants
+### Phase 4 — Listing and wants ✅
 - `listing_agent.py`: photo from Discord attachment → S3, Bedrock writes title /
   description / category, flags prohibited items; seller previews and taps Publish.
 - Modal for floor (+ pickup windows) → encrypted write. `/want` + modal for ceiling.
 - **Done when:** a listing appears in `#listings` and both limits are stored encrypted.
 
-### Phase 5 — Matcher
+### Phase 5 — Matcher ✅
 - `matcher.py` on DynamoDB Streams: category + keyword overlap + campus area; DM the buyer
   "Start haggling?". Never uses limits (it can't decrypt them).
 - **Done when:** a matching want triggers the buyer prompt.
