@@ -97,7 +97,7 @@ def _modal_values(interaction: dict) -> dict[str, str]:
     return values
 
 
-def _parse_price(raw: str) -> int | None:
+def parse_price(raw: str) -> int | None:
     cleaned = raw.replace("$", "").replace(",", "").strip()
     if not cleaned.isdigit():
         return None
@@ -105,16 +105,16 @@ def _parse_price(raw: str) -> int | None:
     return value if 1 <= value <= MAX_PRICE else None
 
 
-def _parse_style(raw: str) -> str | None:
+def parse_style(raw: str) -> str | None:
     style = (raw or "balanced").strip().lower()
     return style if style in STYLE_BETA else None
 
 
-def _user_defaults(user_id: str) -> dict:
+def user_defaults(user_id: str) -> dict:
     return store.table("users").get_item(Key={"user_id": user_id}).get("Item") or {}
 
 
-def _save_user_defaults(user_id: str, area: str, windows_text: str, style: str) -> None:
+def save_user_defaults(user_id: str, area: str, windows_text: str, style: str) -> None:
     store.table("users").update_item(
         Key={"user_id": user_id},
         UpdateExpression=(
@@ -134,15 +134,15 @@ def _save_user_defaults(user_id: str, area: str, windows_text: str, style: str) 
 # ---------- Slash commands
 
 
-def _paused(user_id: str) -> bool:
-    return int(_user_defaults(user_id).get("no_show_count", 0)) >= MAX_NO_SHOWS
+def is_paused(user_id: str) -> bool:
+    return int(user_defaults(user_id).get("no_show_count", 0)) >= MAX_NO_SHOWS
 
 
 PAUSED = "Your account is paused from new deals after repeated missed pickups."
 
 
 def cmd_sell(interaction: dict, user_id: str) -> dict:
-    if _paused(user_id):
+    if is_paused(user_id):
         return private(PAUSED)
     opts = _options(interaction)
     attachment = interaction["data"]["resolved"]["attachments"][opts["photo"]["value"]]
@@ -166,7 +166,7 @@ def cmd_sell(interaction: dict, user_id: str) -> dict:
             "created_at": store.now_iso(),
         }
     )
-    defaults = _user_defaults(user_id)
+    defaults = user_defaults(user_id)
     return respond(
         notify.MODAL,
         {
@@ -199,7 +199,7 @@ def cmd_sell(interaction: dict, user_id: str) -> dict:
 
 
 def cmd_want(interaction: dict, user_id: str) -> dict:
-    if _paused(user_id):
+    if is_paused(user_id):
         return private(PAUSED)
     opts = _options(interaction)
     want_id = store.new_id("wnt")
@@ -213,7 +213,7 @@ def cmd_want(interaction: dict, user_id: str) -> dict:
             "created_at": store.now_iso(),
         }
     )
-    defaults = _user_defaults(user_id)
+    defaults = user_defaults(user_id)
     return respond(
         notify.MODAL,
         {
@@ -359,7 +359,7 @@ def submit_sell(interaction: dict, user_id: str, listing_id: str) -> dict:
     if not listing or listing["seller_id"] != user_id or listing["status"] != "draft":
         return private("This form has expired. Start again with `/sell`.")
 
-    floor = _parse_price(values.get("floor", ""))
+    floor = parse_price(values.get("floor", ""))
     if floor is None:
         return private("The lowest price needs to be a whole dollar amount, like `45`.")
     if floor > listing["asking"]:
@@ -367,7 +367,7 @@ def submit_sell(interaction: dict, user_id: str, listing_id: str) -> dict:
             f"Your lowest price can't be above your asking price (${listing['asking']}). "
             "Start again with `/sell`."
         )
-    style = _parse_style(values.get("style", ""))
+    style = parse_style(values.get("style", ""))
     if style is None:
         return private("Style must be `patient`, `balanced` or `quick`.")
 
@@ -384,7 +384,7 @@ def submit_sell(interaction: dict, user_id: str, listing_id: str) -> dict:
             ":s": "processing",
         },
     )
-    _save_user_defaults(user_id, listing["area"], values.get("windows", ""), style)
+    save_user_defaults(user_id, listing["area"], values.get("windows", ""), style)
     run_async("sell", interaction, listing_id=listing_id)
     return respond(notify.DEFERRED_MESSAGE, {"flags": EPHEMERAL})
 
@@ -395,10 +395,10 @@ def submit_want(interaction: dict, user_id: str, want_id: str) -> dict:
     if not want or want["buyer_id"] != user_id or want["status"] != "draft":
         return private("This form has expired. Start again with `/want`.")
 
-    ceiling = _parse_price(values.get("ceiling", ""))
+    ceiling = parse_price(values.get("ceiling", ""))
     if ceiling is None:
         return private("The most you'll pay needs to be a whole dollar amount, like `65`.")
-    style = _parse_style(values.get("style", ""))
+    style = parse_style(values.get("style", ""))
     if style is None:
         return private("Style must be `patient`, `balanced` or `quick`.")
 
@@ -415,7 +415,7 @@ def submit_want(interaction: dict, user_id: str, want_id: str) -> dict:
             ":s": "processing",
         },
     )
-    _save_user_defaults(user_id, want["area"], values.get("windows", ""), style)
+    save_user_defaults(user_id, want["area"], values.get("windows", ""), style)
     run_async("want", interaction, want_id=want_id)
     return respond(notify.DEFERRED_MESSAGE, {"flags": EPHEMERAL})
 
@@ -674,7 +674,7 @@ def submit_limit(interaction: dict, user_id: str, deal_id: str) -> dict:
     deal, side = _deal_for(deal_id, user_id)
     if not side or deal.get("state") not in ACTIVE_DEAL:
         return private("That negotiation has already ended.")
-    amount = _parse_price(_modal_values(interaction).get("amount", ""))
+    amount = parse_price(_modal_values(interaction).get("amount", ""))
     if amount is None:
         return private("That needs to be a whole dollar amount, like `50`.")
     if side == "seller":
@@ -786,7 +786,9 @@ def press_done(interaction: dict, user_id: str, deal_id: str) -> dict:
         return respond(
             notify.UPDATE_MESSAGE, {"content": "Thanks, already recorded.", "components": []}
         )
+    # "Done" vouches for the other student, in the role they played (for badges).
     _bump(deal[f"{other}_id"], "done_count")
+    _bump(deal[f"{other}_id"], f"done_as_{other}")
     if deal.get(f"handoff_{other}") == "done":
         _set_deal_state(deal_id, "done", expect=("confirmed",))
     return respond(

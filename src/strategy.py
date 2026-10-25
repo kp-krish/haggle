@@ -43,6 +43,9 @@ class Side:
     # short of the limit by this much, so the final offer doesn't reveal the limit.
     # It still accepts anything within the real limit in the final rounds.
     hold_back: float = 0.0
+    # Buyer only: where the agent opens (the low end of a budget range set on the
+    # website). None means the default, 60% of the asking price.
+    opening: int | None = None
 
     def __post_init__(self) -> None:
         if self.role not in ("seller", "buyer"):
@@ -55,6 +58,8 @@ class Side:
             raise ValueError("floor cannot be above the asking price")
         if not 0 <= self.hold_back <= 0.5:
             raise ValueError("hold_back must be between 0 and 0.5")
+        if self.opening is not None and not 1 <= self.opening <= self.limit:
+            raise ValueError("opening offer must be between $1 and the buyer's max")
 
 
 @dataclass(frozen=True)
@@ -76,11 +81,18 @@ def reserve_dollars(hold_back: float, concession_range: int) -> int:
     return min(concession_range // 2, max(1, round(hold_back * concession_range)))
 
 
+def _buyer_base(side: Side) -> int:
+    """The buyer's unclamped starting point: their chosen opening, else 60% of asking."""
+    if side.opening is not None:
+        return side.opening
+    return math.floor(OPENING_FRACTION * side.asking)
+
+
 def offer_target(side: Side) -> int:
     """Where this side's offers end up at the last round: its limit, minus the reserve."""
     if side.role == "seller":
         return side.limit + reserve_dollars(side.hold_back, side.asking - side.limit)
-    base = math.floor(OPENING_FRACTION * side.asking)
+    base = _buyer_base(side)
     # If the ceiling is below 60% of asking, hold back from the ceiling itself, so the
     # opening offer isn't the ceiling either.
     span = max(side.limit - base, math.ceil(0.2 * side.limit))
@@ -98,7 +110,7 @@ def planned_offer(side: Side, t: int) -> int:
     if side.role == "seller":
         raw = side.asking - (side.asking - target) * progress
         return max(target, math.ceil(raw - 1e-9))
-    start = opening_offer(side.asking, target)
+    start = max(1, min(_buyer_base(side), target))
     raw = start + (target - start) * progress
     return min(target, math.floor(raw + 1e-9))
 

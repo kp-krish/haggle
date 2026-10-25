@@ -35,6 +35,16 @@ def table(name: str):
     return _dynamodb().Table(os.environ[f"{name.upper()}_TABLE"])
 
 
+def get_users(ids: set[str]) -> dict[str, dict]:
+    """Users by id in one round trip (up to 100), e.g. sellers on a browse page."""
+    ids = list(ids)[:100]
+    if not ids:
+        return {}
+    name = os.environ["USERS_TABLE"]
+    resp = _dynamodb().batch_get_item(RequestItems={name: {"Keys": [{"user_id": i} for i in ids]}})
+    return {u["user_id"]: u for u in resp["Responses"].get(name, [])}
+
+
 def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 

@@ -8,7 +8,11 @@ from moto import mock_aws
 
 TABLES = {
     "users": ("user_id", None, []),
-    "listings": ("listing_id", None, [("by_category", "category"), ("by_seller", "seller_id")]),
+    "listings": (
+        "listing_id",
+        None,
+        [("by_category", "category"), ("by_seller", "seller_id"), ("by_status", "status")],
+    ),
     "wants": ("want_id", None, [("by_category", "category"), ("by_buyer", "buyer_id")]),
     "deals": (
         "deal_id",
@@ -27,6 +31,7 @@ def _clear_caches():
     import llm
     import notify
     import store
+    import web_api
 
     for fn in (
         store._dynamodb,
@@ -40,6 +45,9 @@ def _clear_caches():
         listing_agent._s3,
         llm._client,
         notify._dm_channel,
+        web_api._s3,
+        web_api._lambda,
+        web_api._hmac_secret,
     ):
         fn.cache_clear()
 

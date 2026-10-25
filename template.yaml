@@ -98,6 +98,76 @@ Resources:
               Action: states:StopExecution
               Resource: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:haggle-${Stage}-negotiation:*
 
+  # ---------- Website API ----------
+  # Called only by the Next.js server, with HMAC-signed requests naming the user.
+  WebApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: web_api.handler
+      Description: Website API (browse, sell, interest, my deals)
+      Timeout: 15
+      Environment:
+        Variables:
+          WEB_SECRET_ARN: !Ref WebSecret
+          WORKER_FUNCTION: !Ref ListingAgentFunction
+      Events:
+        Web:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /web/{proxy+}
+            Method: ANY
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource:
+                - !Ref WebSecret
+                - !Ref DiscordSecret
+            # Locks limits away; cannot read them back.
+            - Effect: Allow
+              Action: kms:Encrypt
+              Resource: !GetAtt LimitsKey.Arn
+            - Effect: Allow
+              Action: states:StopExecution
+              Resource: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:haggle-${Stage}-negotiation:*
+        - DynamoDBCrudPolicy: { TableName: !Ref UsersTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ListingsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref WantsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref DealsTable }
+        - S3CrudPolicy: { BucketName: !Ref PhotosBucket }
+        - LambdaInvokePolicy: { FunctionName: !Ref ListingAgentFunction }
+
+  WebApiErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Website API is erroring
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref WebApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  # Shared by the web API and the Next.js server for request signing.
+  WebSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub haggle/${Stage}/web
+      Description: HMAC key the Next.js server signs website API requests with
+      GenerateSecretString:
+        SecretStringTemplate: "{}"
+        GenerateStringKey: hmac_secret
+        PasswordLength: 64
+        ExcludePunctuation: true
+
   # ---------- Negotiation ----------
   # One workflow per deal: offer turns, agreement, both students confirm.
   NegotiationStateMachine:
@@ -321,6 +391,9 @@ Resources:
       Description: Writes listings from photos, classifies wants, publishes
       MemorySize: 1024
       Timeout: 60
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref NegotiationStateMachine
       Policies:
         - Statement:
             - Effect: Allow
@@ -337,6 +410,10 @@ Resources:
         - DynamoDBCrudPolicy: { TableName: !Ref DealsTable }
         - S3CrudPolicy: { BucketName: !Ref PhotosBucket }
         - Statement:
+            # Website "Interested" starts a negotiation.
+            - Effect: Allow
+              Action: states:StartExecution
+              Resource: !Ref NegotiationStateMachine
             # Extra pickup windows resume the waiting negotiation workflow.
             - Effect: Allow
               Action: states:SendTaskSuccess
@@ -398,6 +475,7 @@ Resources:
         - { AttributeName: category, AttributeType: S }
         - { AttributeName: seller_id, AttributeType: S }
         - { AttributeName: created_at, AttributeType: S }
+        - { AttributeName: status, AttributeType: S }
       KeySchema:
         - { AttributeName: listing_id, KeyType: HASH }
       GlobalSecondaryIndexes:
@@ -409,6 +487,12 @@ Resources:
         - IndexName: by_seller
           KeySchema:
             - { AttributeName: seller_id, KeyType: HASH }
+            - { AttributeName: created_at, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        # Website browsing: open listings, newest first.
+        - IndexName: by_status
+          KeySchema:
+            - { AttributeName: status, KeyType: HASH }
             - { AttributeName: created_at, KeyType: RANGE }
           Projection: { ProjectionType: ALL }
       StreamSpecification: { StreamViewType: NEW_AND_OLD_IMAGES }
@@ -512,6 +596,18 @@ Resources:
           - Id: expire-photos-after-move-out
             Status: Enabled
             ExpirationInDays: 180
+          # Raw website uploads; the listing agent stores a resized copy under photos/.
+          - Id: expire-raw-uploads
+            Status: Enabled
+            Prefix: uploads/
+            ExpirationInDays: 1
+      CorsConfiguration:
+        CorsRules:
+          # Browsers upload photos straight to S3 with a presigned POST.
+          - AllowedMethods: [POST]
+            AllowedOrigins: ["*"]
+            AllowedHeaders: ["*"]
+            MaxAge: 3000
 
   # ---------- Secrets + encryption ----------
   # Private floor/ceiling prices are encrypted field by field with this key.
@@ -581,6 +677,11 @@ Outputs:
   InteractionsUrl:
     Description: Paste into Discord developer portal > Interactions Endpoint URL
     Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/interactions
+  WebApiUrl:
+    Description: Base URL the Next.js server calls (HAGGLE_API_URL)
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  WebSecretArn:
+    Value: !Ref WebSecret
   DiscordSecretArn:
     Value: !Ref DiscordSecret
   PhotosBucketName:

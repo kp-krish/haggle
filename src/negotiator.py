@@ -106,12 +106,15 @@ def load_side(deal: dict, side: str) -> Side:
         item = store.table("wants").get_item(Key={"want_id": deal["want_id"]})["Item"]
         ciphertext = item["ceiling_enc"].value
         limit = store.decrypt_limit(ciphertext, f"want#{item['want_id']}", item["buyer_id"])
+    # A website budget range sets where the buyer opens; capped at a lowered max.
+    opening = item.get("opening") if side == "buyer" else None
     return Side(
         side,
         int(deal["asking"]),
         limit,
         item.get("style", "balanced"),
         hold_back_for(ciphertext, deal["deal_id"]),
+        min(int(opening), limit) if opening is not None else None,
     )
 
 

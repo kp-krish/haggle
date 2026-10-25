@@ -15,6 +15,7 @@ import io
 import json
 import logging
 import os
+import time
 import urllib.request
 from datetime import datetime, timedelta
 from functools import cache
@@ -23,6 +24,7 @@ import boto3
 from PIL import Image
 
 import llm
+import matcher
 import notify
 import store
 from categories import CATEGORIES
@@ -138,6 +140,13 @@ def _set(table: str, key: dict, **fields) -> None:
     )
 
 
+def _reply(event: dict, payload: dict) -> None:
+    """Update the Discord reply this job is behind. Website jobs have none: the site
+    reads the listing's status instead."""
+    if event.get("token"):
+        notify.edit_original(event["app_id"], event["token"], payload)
+
+
 # ---------- Jobs
 
 
@@ -146,7 +155,11 @@ def job_sell(event: dict) -> None:
     key = {"listing_id": listing_id}
     listing = store.table("listings").get_item(Key=key)["Item"]
 
-    photo = _shrink(_download(listing["photo_url"]))
+    if listing.get("upload_key"):  # uploaded on the website, straight to S3
+        raw = _s3().get_object(Bucket=os.environ["PHOTOS_BUCKET"], Key=listing["upload_key"])
+        photo = _shrink(raw["Body"].read())
+    else:  # attached to /sell in Discord
+        photo = _shrink(_download(listing["photo_url"]))
     _s3().put_object(
         Bucket=os.environ["PHOTOS_BUCKET"],
         Key=_photo_key(listing_id),
@@ -165,9 +178,8 @@ def job_sell(event: dict) -> None:
         _set(
             "listings", key, status="rejected", rejected_reason=written.get("prohibited_reason", "")
         )
-        notify.edit_original(
-            event["app_id"],
-            event["token"],
+        _reply(
+            event,
             {
                 "content": "Sorry, I can't list this item on Haggle"
                 + (
@@ -201,12 +213,11 @@ def job_sell(event: dict) -> None:
     note = "Your lowest price is saved privately; only your agent can read it."
     if not windows:
         note += "\nI couldn't read your pickup times, so I'll ask again once a price is agreed."
-    notify.edit_original(
-        event["app_id"],
-        event["token"],
+    _reply(
+        event,
         {
             "content": f"Here's the listing I wrote. Publish it?\n{note}",
-            "embeds": [listing_embed(listing, listing["photo_url"])],
+            "embeds": [listing_embed(listing, listing.get("photo_url", ""))],
             "components": [
                 notify.row(
                     notify.button("Publish", f"publish:{listing_id}", notify.SUCCESS),
@@ -240,9 +251,8 @@ def job_publish(event: dict) -> None:
         message_id=message["id"],
         published_at=store.now_iso(),
     )
-    notify.edit_original(
-        event["app_id"],
-        event["token"],
+    _reply(
+        event,
         {
             "content": f"Published in <#{channel_id}>. I'll message you when a buyer matches.",
             "embeds": [],
@@ -270,9 +280,8 @@ def job_want(event: dict) -> None:
     note = "Your max price is saved privately; only your agent can read it."
     if not windows:
         note += "\nI couldn't read your pickup times, so I'll ask again once a price is agreed."
-    notify.edit_original(
-        event["app_id"],
-        event["token"],
+    _reply(
+        event,
         {
             "content": f"Got it. I'm watching for **{want['query']}** ({category}) near "
             f"{want['area']} campus and will message you when something matches.\n{note}"
@@ -292,14 +301,13 @@ def job_window(event: dict) -> None:
     deal = store.table("deals").get_item(Key={"deal_id": deal_id})["Item"]
     token = deal.get(f"window_token_{side}")
     if not token:
-        notify.edit_original(event["app_id"], event["token"], {"content": "That request expired."})
+        _reply(event, {"content": "That request expired."})
         return
 
     added = parse_windows(event.get("text", ""))
     if not added:
-        notify.edit_original(
-            event["app_id"],
-            event["token"],
+        _reply(
+            event,
             {"content": "I couldn't read a time from that. Try something like `Fri 2-5pm`."},
         )
         return
@@ -312,18 +320,60 @@ def job_window(event: dict) -> None:
         Key={"deal_id": deal_id}, UpdateExpression=f"REMOVE window_token_{side}"
     )
     _sfn().send_task_success(taskToken=token, output=json.dumps({"side": side}))
-    notify.edit_original(
-        event["app_id"], event["token"], {"content": "Thanks! Checking for a pickup time again."}
+    _reply(event, {"content": "Thanks! Checking for a pickup time again."})
+
+
+def job_interest(event: dict) -> None:
+    """ "Interested" on the website: no matching, the buyer picked the listing. Read
+    their free times, open the deal and start the negotiation, which runs in Discord."""
+    want_id = event["want_id"]
+    want = store.table("wants").get_item(Key={"want_id": want_id})["Item"]
+    listing = store.table("listings").get_item(Key={"listing_id": want["listing_id"]})["Item"]
+    windows = parse_windows(want.get("windows_text", ""))
+    if listing.get("status") != "open":
+        _set("wants", {"want_id": want_id}, status="closed", windows=windows)
+        return
+    _set("wants", {"want_id": want_id}, status="direct", windows=windows)
+
+    deal_id = matcher.deal_id_for(listing["listing_id"], want_id)
+    store.table("deals").put_item(
+        Item={
+            "deal_id": deal_id,
+            "listing_id": listing["listing_id"],
+            "want_id": want_id,
+            "seller_id": listing["seller_id"],
+            "buyer_id": want["buyer_id"],
+            "title": listing.get("title", ""),
+            "description": listing.get("description", ""),
+            "asking": listing["asking"],
+            "state": "starting",
+            "source": "web",
+            "created_at": store.now_iso(),
+        },
+        ConditionExpression="attribute_not_exists(deal_id)",
     )
+    execution = _sfn().start_execution(
+        stateMachineArn=os.environ["STATE_MACHINE_ARN"],
+        name=f"{deal_id}-{int(time.time())}",
+        input=json.dumps({"deal_id": deal_id}),
+    )
+    _set("deals", {"deal_id": deal_id}, execution_arn=execution["executionArn"])
 
 
-JOBS = {"sell": job_sell, "publish": job_publish, "want": job_want, "window": job_window}
+JOBS = {
+    "sell": job_sell,
+    "publish": job_publish,
+    "want": job_want,
+    "window": job_window,
+    "interest": job_interest,
+}
 
 # Which record to mark as errored when a job fails.
 FAILED_STATUS = {
     "sell": ("listings", "listing_id"),
     "publish": ("listings", "listing_id"),
     "want": ("wants", "want_id"),
+    "interest": ("wants", "want_id"),
 }
 
 
@@ -340,9 +390,8 @@ def handler(event: dict, context) -> None:
             except Exception:
                 log.exception("could not mark %s as error", event.get(id_field))
         try:
-            notify.edit_original(
-                event["app_id"],
-                event["token"],
+            _reply(
+                event,
                 {
                     "content": "Something went wrong on my side. Please try again in a minute.",
                     "embeds": [],
