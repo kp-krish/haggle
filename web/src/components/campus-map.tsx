@@ -2,11 +2,14 @@
 
 import "maplibre-gl/dist/maplibre-gl.css";
 
-import { Map as MapLibreMap, Marker } from "maplibre-gl";
+import { Map as MapLibreMap, Marker, setWorkerUrl } from "maplibre-gl";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
 import type { Area, Place } from "@/lib/types";
+
+// Copied into /public by scripts/copy-map-worker.mjs on install.
+setWorkerUrl("/maplibre-gl-worker.mjs");
 
 /** OpenStreetMap vector tiles (OpenFreeMap), restyled below in Haggle's palette. */
 const STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
