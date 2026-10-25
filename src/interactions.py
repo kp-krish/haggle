@@ -31,6 +31,7 @@ MAX_PRICE = 10_000
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
 OPEN_LISTING = ("preview", "open")
 OPEN_WANT = ("open",)
+CLOSED_DEAL = ("closed", "stopped", "done", "no_deal", "passed")
 
 
 def _response(status: int, body: dict) -> dict:
@@ -251,7 +252,7 @@ def open_items(user_id: str) -> dict[str, list[dict]]:
         d
         for d in _query_index("deals", "by_seller", "seller_id", user_id)
         + _query_index("deals", "by_buyer", "buyer_id", user_id)
-        if d.get("state") not in ("closed", "stopped", "done", "no_deal")
+        if d.get("state") not in CLOSED_DEAL
     ]
     return {"listings": listings, "wants": wants, "deals": deals}
 
@@ -423,9 +424,66 @@ def press_cancel(interaction: dict, user_id: str, listing_id: str) -> dict:
     )
 
 
+def press_haggle(interaction: dict, user_id: str, deal_id: str) -> dict:
+    """Buyer agrees to start negotiating a matched listing."""
+    deal = store.table("deals").get_item(Key={"deal_id": deal_id}).get("Item")
+    if not deal or deal["buyer_id"] != user_id:
+        return respond(notify.UPDATE_MESSAGE, {"content": "This match is no longer active."})
+    listing = store.table("listings").get_item(Key={"listing_id": deal["listing_id"]}).get("Item")
+    if not listing or listing.get("status") != "open":
+        _set_deal_state(deal_id, "closed")
+        return respond(
+            notify.UPDATE_MESSAGE,
+            {"content": "Sorry, that item is no longer available.", "components": []},
+        )
+    try:
+        _set_deal_state(deal_id, "accepted", expect="proposed")
+    except store.conditional_failed():
+        return respond(notify.UPDATE_MESSAGE, {"content": "You already answered this one."})
+    return respond(
+        notify.UPDATE_MESSAGE,
+        {
+            "content": f"Got it. Your agent will haggle for **{deal.get('title', 'the item')}** "
+            "and stay within your max price. You'll see each offer here.",
+            "components": [],
+        },
+    )
+
+
+def press_pass(interaction: dict, user_id: str, deal_id: str) -> dict:
+    deal = store.table("deals").get_item(Key={"deal_id": deal_id}).get("Item")
+    if deal and deal["buyer_id"] == user_id:
+        try:
+            _set_deal_state(deal_id, "passed", expect="proposed")
+        except store.conditional_failed():
+            pass
+    return respond(
+        notify.UPDATE_MESSAGE,
+        {"content": "No problem, I'll keep looking.", "embeds": [], "components": []},
+    )
+
+
+def _set_deal_state(deal_id: str, state: str, expect: str | None = None) -> None:
+    kwargs = {}
+    if expect:
+        kwargs["ConditionExpression"] = Attr("state").eq(expect)
+    store.table("deals").update_item(
+        Key={"deal_id": deal_id},
+        UpdateExpression="SET #st = :s, updated_at = :now",
+        ExpressionAttributeNames={"#st": "state"},
+        ExpressionAttributeValues={":s": state, ":now": store.now_iso()},
+        **kwargs,
+    )
+
+
 COMMANDS = {"sell": cmd_sell, "want": cmd_want, "deals": cmd_deals, "stop": cmd_stop}
 MODALS = {"sell": submit_sell, "want": submit_want}
-BUTTONS = {"publish": press_publish, "cancel": press_cancel}
+BUTTONS = {
+    "publish": press_publish,
+    "cancel": press_cancel,
+    "haggle": press_haggle,
+    "pass": press_pass,
+}
 
 
 def route(interaction: dict) -> dict:
