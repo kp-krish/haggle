@@ -13,6 +13,7 @@ from test_negotiation import (
     press,
     sent,
     setup_deal,
+    text_of,
     tomorrow,
 )
 
@@ -80,8 +81,10 @@ def test_agreed_price_comes_with_slot_and_public_spot(world, monkeypatch):
     assert d["state"] == "confirming"
     assert d["slot_start"] == tomorrow(16)  # earliest overlap of 14-18 and 16-19
     assert d["spot_name"] == "Memorial Union north entrance"
+    # One card per student carries the price and pickup, with the confirm buttons.
+    deals.request_confirm("deal_1", "buyer", "tok-b")
     line = sent(world["dm"])[-1][1]
-    assert "Price agreed at $" in line and "Pickup:" in line and "Memorial Union" in line
+    assert "Price agreed" in line and "Pickup:" in line and "Memorial Union" in line
 
 
 def test_students_never_see_each_others_windows(world, monkeypatch):
@@ -217,7 +220,9 @@ def test_past_followups_are_skipped(world, monkeypatch):
 def test_reminder_has_running_late_button(world, monkeypatch):
     confirmed_deal(monkeypatch)
     deals.remind("deal_1")
-    reminders = [c.args for c in world["dm"].call_args_list if "Reminder" in c.args[1]["content"]]
+    reminders = [
+        c.args for c in world["dm"].call_args_list if "about an hour" in text_of(c.args[1])
+    ]
     assert {u for u, _ in reminders} == {SELLER, BUYER}
     assert reminders[0][1]["components"][0]["components"][0]["custom_id"] == "late:deal_1"
 

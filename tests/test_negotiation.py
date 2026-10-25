@@ -103,8 +103,18 @@ def dms(aws):
         yield dm, model, sfn
 
 
+def text_of(payload: dict) -> str:
+    """Everything a student reads in a message: content plus any card text."""
+    parts = [payload.get("content", "")]
+    for e in payload.get("embeds", []):
+        parts += [e.get("author", {}).get("name", ""), e.get("title", ""), e.get("description", "")]
+        parts += [f"{f['name']}: {f['value']}" for f in e.get("fields", [])]
+        parts.append(e.get("footer", {}).get("text", ""))
+    return "\n".join(p for p in parts if p)
+
+
 def sent(dm) -> list[tuple[str, str]]:
-    return [(c.args[0], c.args[1].get("content", "")) for c in dm.call_args_list]
+    return [(c.args[0], text_of(c.args[1])) for c in dm.call_args_list]
 
 
 def test_agents_reach_a_price_inside_both_limits(dms, monkeypatch):
@@ -124,7 +134,10 @@ def test_agents_reach_a_price_inside_both_limits(dms, monkeypatch):
 
     # Both students saw every line (the opening ask plus each turn).
     for user in (SELLER, BUYER):
-        assert sum(1 for u, t in sent(dm) if u == user and "agent:**" in t) == len(offers) + 1
+        turns = [
+            t for u, t in sent(dm) if u == user and re.search(r"agent.* · (offers|accepts) [$]", t)
+        ]
+        assert len(turns) == len(offers) + 1
 
 
 def test_each_side_decrypts_only_its_own_limit(dms, monkeypatch):
@@ -214,13 +227,13 @@ def test_confirm_flow_reveals_identities_only_at_the_end(dms, monkeypatch):
     price = agree(setup_deal(), monkeypatch)
     deals.request_confirm("deal_1", "seller", "tok-s")
     deals.request_confirm("deal_1", "buyer", "tok-b")
-    assert not any("The buyer is" in t or "The seller is" in t for _, t in sent(dm))
+    assert not any("Meeting the" in t for _, t in sent(dm))
 
     assert deals.finalize("deal_1") == {"result": "confirmed"}
     assert store.table("listings").get_item(Key={"listing_id": "lst_1"})["Item"]["status"] == "sold"
     assert store.table("wants").get_item(Key={"want_id": "wnt_1"})["Item"]["status"] == "fulfilled"
     final = dict(sent(dm)[-2:])
-    assert "The buyer is" in final[SELLER] and "The seller is" in final[BUYER]
+    assert "Meeting the buyer" in final[SELLER] and "Meeting the seller" in final[BUYER]
     assert f"${price}" in final[SELLER]
 
 
@@ -298,11 +311,11 @@ def test_confirm_and_decline_use_each_sides_own_token(sfn, monkeypatch):
     deals.request_confirm("deal_1", "buyer", "tok-b")
 
     assert "no longer waiting" in press(OTHER_BUYER, "confirm:deal_1")["data"]["content"]
-    assert "Waiting for the other" in press(SELLER, "confirm:deal_1")["data"]["content"]
+    assert "Waiting for the other" in text_of(press(SELLER, "confirm:deal_1")["data"])
     sfn.send_task_success.assert_called_once_with(taskToken="tok-s", output='{"side": "seller"}')
     assert "no longer waiting" in press(SELLER, "confirm:deal_1")["data"]["content"]
 
-    assert "declined" in press(BUYER, "decline:deal_1")["data"]["content"]
+    assert "declined" in text_of(press(BUYER, "decline:deal_1")["data"])
     sfn.send_task_failure.assert_called_once_with(
         taskToken="tok-b", error="Declined", cause="buyer"
     )

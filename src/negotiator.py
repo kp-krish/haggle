@@ -20,6 +20,7 @@ from functools import cache
 import boto3
 from boto3.dynamodb.conditions import Attr
 
+import cards
 import guard
 import llm
 import notify
@@ -30,7 +31,6 @@ log = logging.getLogger()
 log.setLevel(logging.INFO)
 
 OFFER_TTL_SECONDS = 30 * 24 * 3600 + 7 * 24 * 3600  # 30 days after a deal closes, roughly
-LABEL = {"seller": "Seller's agent", "buyer": "Buyer's agent"}
 # When rounds run out, the buyer is asked about the seller's final offer if it is within
 # 25% (or $5) of their max; further apart than that isn't worth a question.
 FINAL_ASK_FRACTION = 0.25
@@ -153,12 +153,13 @@ def write_message(deal: dict, side: str, style: str, action: str, amount: int | 
     return guard.safe_text(generate, side, action, amount)
 
 
-def mirror(deal: dict, side: str, text: str) -> None:
-    """Show the line in both students' private messages."""
-    line = f"**{LABEL[side]}:** {text}"
+def mirror(deal: dict, side: str, text: str, action: str, amount: int | None) -> None:
+    """Show the turn in both students' private messages, as a card with the number up
+    front; each student sees their own agent labelled as theirs."""
     for user_id in (deal["seller_id"], deal["buyer_id"]):
+        own = user_id == deal[f"{side}_id"]
         try:
-            notify.dm(user_id, {"content": line})
+            notify.dm(user_id, cards.agent_turn(side, text, action, amount, own))
         except Exception:
             log.exception("could not mirror to %s", user_id)
 
@@ -222,7 +223,7 @@ def take_turn(deal_id: str, t: int, side: str) -> dict:
         return STOPPED  # stopped while we were thinking
 
     if text:
-        mirror(deal, side, text)
+        mirror(deal, side, text, move.action, move.amount)
     next_t = t + 1 if side == "buyer" else t
     return {
         "action": move.action,

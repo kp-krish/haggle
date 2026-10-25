@@ -229,3 +229,13 @@ def test_zone_scores_count_this_weeks_confirmed_pickups(aws):
     assert result["scores"][zone] == 2 and sum(result["scores"].values()) == 2
     assert result["leader"] == zone
     assert result["since"] == "2026-10-26T00:00:00-07:00"
+
+
+def test_agent_turn_cards_label_the_readers_own_agent():
+    import cards
+
+    mine = cards.agent_turn("buyer", "How about $51?", "offer", 51, own=True)["embeds"][0]
+    theirs = cards.agent_turn("buyer", "How about $51?", "offer", 51, own=False)["embeds"][0]
+    assert mine["author"]["name"] == "Your agent (buyer) · offers $51"
+    assert theirs["author"]["name"] == "Buyer's agent · offers $51"
+    assert mine["color"] == cards.BUYER and mine["description"] == "How about $51?"

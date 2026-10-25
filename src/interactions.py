@@ -22,6 +22,7 @@ from boto3.dynamodb.conditions import Attr, Key
 from nacl.exceptions import BadSignatureError
 from nacl.signing import VerifyKey
 
+import cards
 import game
 import notify
 import store
@@ -564,13 +565,10 @@ def _answer_confirm(user_id: str, deal_id: str, confirmed: bool) -> dict:
     store.table("deals").update_item(
         Key={"deal_id": deal_id}, UpdateExpression=f"REMOVE confirm_token_{side}"
     )
-    content = (
-        f"Confirmed: **{deal.get('title', 'item')}** for ${deal['agreed_price']}. "
-        "Waiting for the other student."
-        if confirmed
-        else "You declined the deal."
+    status = (
+        "You confirmed. Waiting for the other student." if confirmed else "You declined the deal."
     )
-    return respond(notify.UPDATE_MESSAGE, {"content": content, "components": []})
+    return respond(notify.UPDATE_MESSAGE, {**cards.confirm_request(deal, status), "components": []})
 
 
 def _answer_final(user_id: str, deal_id: str, accepted: bool) -> dict:

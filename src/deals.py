@@ -17,6 +17,7 @@ from functools import cache
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
 
+import cards
 import game
 import notify
 import scheduler
@@ -90,11 +91,6 @@ def _controls(deal_id: str, limit_label: str) -> list[dict]:
     ]
 
 
-def pickup_line(deal: dict) -> str:
-    start = datetime.fromisoformat(deal["slot_start"])
-    return f"Pickup: {scheduler.format_slot(start)}, {deal['spot_name']}"
-
-
 # ---------- Negotiation
 
 
@@ -110,24 +106,21 @@ def start(deal_id: str) -> dict:
         ladder=[{"t": 0, "side": "seller", "amount": int(deal["asking"]), "action": "offer"}],
         updated_at=store.now_iso(),
     )
-    title = deal.get("title", "your item")
-    notify.dm(
-        deal["seller_id"],
-        {
-            "content": f"A buyer's agent wants **{title}**. I'm negotiating now and will "
-            "stay at or above your lowest price. You'll see every offer here.",
-            "components": _controls(deal_id, "Change my lowest price"),
-        },
-    )
-    notify.dm(
-        deal["buyer_id"],
-        {
-            "content": f"Haggling for **{title}** has started. I'll stay at or below your "
-            "max price. You'll see every offer here.",
-            "components": _controls(deal_id, "Change my max price"),
-        },
-    )
-    _dm_both(deal, {"content": f"**Seller's agent:** {title}. Asking ${deal['asking']}."})
+    title = deal.get("title", "Item")
+    for side, label in (("seller", "Change my lowest price"), ("buyer", "Change my max price")):
+        notify.dm(
+            deal[f"{side}_id"],
+            {**cards.started(deal, side), "components": _controls(deal_id, label)},
+        )
+    for side in ("seller", "buyer"):
+        opening = cards.agent_turn(
+            "seller", f"{title}. Asking ${deal['asking']}.", "offer", int(deal["asking"]),
+            own=side == "seller",
+        )  # fmt: skip
+        try:
+            notify.dm(deal[f"{side}_id"], opening)
+        except Exception:
+            log.exception("could not DM %s", deal[f"{side}_id"])
     return {"deal_id": deal_id, "next": {"side": "buyer", "t": 0}}
 
 
@@ -174,14 +167,8 @@ def schedule(deal_id: str, now: datetime | None = None) -> dict:
         spot_name=pickup.place["name"],
         updated_at=store.now_iso(),
     )
-    deal = _deal(deal_id)
-    _dm_both(
-        deal,
-        {
-            "content": f"**Haggle:** Price agreed at ${deal['agreed_price']}. "
-            f"{pickup_line(deal)}. Waiting for both students to confirm."
-        },
-    )
+    # No message here: each student's confirm request (next step) carries the price
+    # and pickup, so the DM gets one card instead of two messages.
     return {"found": True}
 
 
@@ -228,9 +215,7 @@ def request_confirm(deal_id: str, side: str, token: str) -> None:
     notify.dm(
         deal[f"{side}_id"],
         {
-            "content": f"Confirm the deal? **{deal.get('title', 'Item')}** for "
-            f"**${deal['agreed_price']}**. {pickup_line(deal)}. "
-            "Nothing is final until you both say yes.",
+            **cards.confirm_request(deal),
             "components": [
                 notify.row(
                     notify.button("Confirm deal", f"confirm:{deal_id}", notify.SUCCESS),
@@ -254,21 +239,16 @@ def finalize(deal_id: str, own_arn: str | None = None) -> dict:
         )
     except store.conditional_failed():
         _update(deal_id, state="closed", close_reason="lost", updated_at=store.now_iso())
-        _dm_both(deal, {"content": "**Haggle:** Sorry, the item was sold in another deal first."})
+        _dm_both(deal, cards.notice("Sorry, the item was sold in another deal first."))
         return {"result": "lost"}
 
     _update(deal_id, state="confirmed", updated_at=store.now_iso())
     _set_status("wants", {"want_id": deal["want_id"]}, "fulfilled")
 
     # Identities are revealed only now, after both students confirmed.
-    done = (
-        f"**Deal confirmed:** {deal.get('title', 'the item')} for ${deal['agreed_price']}. "
-        f"{pickup_line(deal)}. Pay in person at pickup; Haggle never handles money.\n"
-        "Can't make it? Use `/cancel` here or Cancel booking on the website."
-    )
     buyer, seller = notify.display_name(deal["buyer_id"]), notify.display_name(deal["seller_id"])
-    notify.dm(deal["seller_id"], {"content": f"{done}\nThe buyer is {buyer}."})
-    notify.dm(deal["buyer_id"], {"content": f"{done}\nThe seller is {seller}."})
+    notify.dm(deal["seller_id"], cards.confirmed(deal, buyer, "buyer"))
+    notify.dm(deal["buyer_id"], cards.confirmed(deal, seller, "seller"))
     close_others(deal)
     if own_arn:
         schedule_followups(deal, own_arn)
@@ -313,24 +293,19 @@ def declined(deal_id: str, error: str) -> None:
     deal = _deal(deal_id)
     _update(deal_id, state="closed", close_reason="declined", updated_at=store.now_iso())
     reason = "no confirmation arrived in time" if error == "States.Timeout" else "it was declined"
-    _dm_both(deal, {"content": f"**Haggle:** The deal is off because {reason}."})
+    _dm_both(deal, cards.notice(f"The deal is off because {reason}."))
 
 
 def no_deal(deal_id: str) -> None:
     deal = _deal(deal_id)
     _update(deal_id, state="no_deal", updated_at=store.now_iso())
-    _dm_both(
-        deal,
-        {"content": "**Haggle:** No deal this time; the two sides were too far apart."},
-    )
+    _dm_both(deal, cards.notice("No deal this time; the two sides were too far apart."))
 
 
 def failed(deal_id: str) -> None:
     deal = _deal(deal_id)
     _update(deal_id, state="closed", close_reason="error", updated_at=store.now_iso())
-    _dm_both(
-        deal, {"content": "**Haggle:** Something went wrong with this negotiation, so I closed it."}
-    )
+    _dm_both(deal, cards.notice("Something went wrong with this negotiation, so I closed it."))
 
 
 # ---------- Reminder and handoff (EventBridge Scheduler)
@@ -372,9 +347,7 @@ def remind(deal_id: str) -> None:
             notify.dm(
                 deal[f"{side}_id"],
                 {
-                    "content": f"**Reminder:** pickup for **{deal.get('title', 'the item')}** "
-                    f"in about an hour. {pickup_line(deal)}. You're meeting "
-                    f"{notify.display_name(deal[f'{other}_id'])}.",
+                    **cards.reminder(deal, notify.display_name(deal[f"{other}_id"])),
                     "components": [
                         notify.row(
                             notify.button("Running late", f"late:{deal_id}", notify.SECONDARY)
@@ -393,7 +366,7 @@ def handoff(deal_id: str) -> None:
     _dm_both(
         deal,
         {
-            "content": f"Did the pickup for **{deal.get('title', 'the item')}** happen?",
+            **cards.handoff(deal),
             "components": [
                 notify.row(
                     notify.button("Done", f"done:{deal_id}", notify.SUCCESS),
@@ -471,7 +444,7 @@ def recap(deal: dict, role: str, result: dict) -> dict:
                 "title": f"Deal recap: {deal.get('title', 'your item')}",
                 "description": f"**${price}** (asking ${asking}) after {rounds} round"
                 f"{'' if rounds == 1 else 's'}. {outcome}",
-                "color": notify.COLOR,
+                "color": cards.HAGGLE,
                 "fields": fields,
             }
         ],
@@ -530,10 +503,10 @@ def cancelled(deal_id: str) -> None:
     sync_rank(deal[f"{by}_id"])  # cancelling cost points, which can drop a rank
     notify.dm(
         deal[f"{other}_id"],
-        {
-            "content": f"**Haggle:** {notify.display_name(deal[f'{by}_id'])} cancelled the "
-            f"pickup for **{title}**. Sorry about that."
-        },
+        cards.notice(
+            f"{notify.display_name(deal[f'{by}_id'])} cancelled the pickup for **{title}**. "
+            "Sorry about that."
+        ),
     )
     if by == "buyer":
         # The seller still wants to sell: relist and ask earlier buyers again.
