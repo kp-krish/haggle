@@ -70,6 +70,7 @@ Resources:
       Environment:
         Variables:
           WORKER_FUNCTION: !Ref ListingAgentFunction
+          STATE_MACHINE_ARN: !Ref NegotiationStateMachine
       Policies:
         - Statement:
             - Effect: Allow
@@ -84,6 +85,136 @@ Resources:
         - DynamoDBCrudPolicy: { TableName: !Ref WantsTable }
         - DynamoDBCrudPolicy: { TableName: !Ref DealsTable }
         - LambdaInvokePolicy: { FunctionName: !Ref ListingAgentFunction }
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+                - states:SendTaskSuccess
+                - states:SendTaskFailure
+              Resource: !Ref NegotiationStateMachine
+            - Effect: Allow
+              Action: states:StopExecution
+              Resource: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:haggle-${Stage}-negotiation:*
+
+  # ---------- Negotiation ----------
+  # One workflow per deal: offer turns, agreement, both students confirm.
+  NegotiationStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub haggle-${Stage}-negotiation
+      Type: STANDARD
+      DefinitionUri: statemachine/negotiation.asl.json
+      DefinitionSubstitutions:
+        SellerNegotiatorArn: !GetAtt SellerNegotiatorFunction.Arn
+        BuyerNegotiatorArn: !GetAtt BuyerNegotiatorFunction.Arn
+        DealsFunctionArn: !GetAtt DealsFunction.Arn
+      Policies:
+        - LambdaInvokePolicy: { FunctionName: !Ref SellerNegotiatorFunction }
+        - LambdaInvokePolicy: { FunctionName: !Ref BuyerNegotiatorFunction }
+        - LambdaInvokePolicy: { FunctionName: !Ref DealsFunction }
+
+  # Same code, two roles. Each may decrypt only its own side's limits: the KMS
+  # encryption context names the record ("listing#..." or "want#...").
+  SellerNegotiatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: negotiator.handler
+      Description: Seller's agent - decrypts only seller floors
+      Timeout: 60
+      Environment:
+        Variables:
+          SIDE: seller
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Ref DiscordSecret
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource:
+                - arn:aws:bedrock:*::foundation-model/*
+                - !Sub arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*
+            - Effect: Allow
+              Action: kms:Decrypt
+              Resource: !GetAtt LimitsKey.Arn
+              Condition:
+                StringLike:
+                  kms:EncryptionContext:record: "listing#*"
+                StringEquals:
+                  kms:EncryptionContext:purpose: price-limit
+        - DynamoDBReadPolicy: { TableName: !Ref ListingsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref DealsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref OffersTable }
+
+  BuyerNegotiatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: negotiator.handler
+      Description: Buyer's agent - decrypts only buyer ceilings
+      Timeout: 60
+      Environment:
+        Variables:
+          SIDE: buyer
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Ref DiscordSecret
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource:
+                - arn:aws:bedrock:*::foundation-model/*
+                - !Sub arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*
+            - Effect: Allow
+              Action: kms:Decrypt
+              Resource: !GetAtt LimitsKey.Arn
+              Condition:
+                StringLike:
+                  kms:EncryptionContext:record: "want#*"
+                StringEquals:
+                  kms:EncryptionContext:purpose: price-limit
+        - DynamoDBReadPolicy: { TableName: !Ref WantsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref DealsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref OffersTable }
+
+  # Deal lifecycle around the turns. No KMS access.
+  DealsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: deals.handler
+      Description: Opens, confirms, finalises and closes deals
+      Timeout: 30
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Ref DiscordSecret
+            - Effect: Allow
+              Action: states:StopExecution
+              Resource: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:haggle-${Stage}-negotiation:*
+        - DynamoDBCrudPolicy: { TableName: !Ref DealsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ListingsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref WantsTable }
+
+  NegotiationFailuresAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Negotiation workflows are failing
+      Namespace: AWS/States
+      MetricName: ExecutionsFailed
+      Dimensions:
+        - Name: StateMachineArn
+          Value: !Ref NegotiationStateMachine
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
 
   # Pairs listings and wants as they open. Public fields only; no KMS access.
   MatcherFunction:

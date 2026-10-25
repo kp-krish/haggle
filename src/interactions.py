@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 from functools import cache
 
@@ -24,6 +25,8 @@ import store
 from notify import EPHEMERAL, private, respond
 from strategy import STYLE_BETA
 
+log = logging.getLogger()
+
 PING, COMMAND, COMPONENT, AUTOCOMPLETE, MODAL_SUBMIT = 1, 2, 3, 4, 5
 
 AREAS = ("north", "central", "south")
@@ -31,7 +34,8 @@ MAX_PRICE = 10_000
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
 OPEN_LISTING = ("preview", "open")
 OPEN_WANT = ("open",)
-CLOSED_DEAL = ("closed", "stopped", "done", "no_deal", "passed")
+CLOSED_DEAL = ("closed", "stopped", "done", "no_deal", "passed", "confirmed")
+ACTIVE_DEAL = ("starting", "negotiating", "confirming")
 
 
 def _response(status: int, body: dict) -> dict:
@@ -304,6 +308,8 @@ def cmd_stop(interaction: dict, user_id: str) -> dict:
                 ExpressionAttributeValues={":stopped": "stopped"},
             )
             return private("Stopped looking for that item.")
+        if target.startswith("deal_"):
+            return private(stop_deal(user_id, target))
     except store.conditional_failed():
         return private("I couldn't find an open item with that id under your name.")
     return private("Pick one of your items from the list (start typing to see them).")
@@ -315,7 +321,14 @@ def autocomplete_stop(interaction: dict, user_id: str) -> dict:
     choices = [
         {"name": f"Selling: {i.get('title') or i['seller_notes']}"[:100], "value": i["listing_id"]}
         for i in items["listings"]
-    ] + [{"name": f"Wanted: {w['query']}"[:100], "value": w["want_id"]} for w in items["wants"]]
+    ]
+    choices += [
+        {"name": f"Wanted: {w['query']}"[:100], "value": w["want_id"]} for w in items["wants"]
+    ]
+    choices += [
+        {"name": f"Negotiation: {d.get('title', 'deal')}"[:100], "value": d["deal_id"]}
+        for d in items["deals"]
+    ]
     choices = [c for c in choices if typed in c["name"].lower() or typed in c["value"].lower()]
     return respond(notify.AUTOCOMPLETE_RESULT, {"choices": choices[:25]})
 
@@ -424,49 +437,31 @@ def press_cancel(interaction: dict, user_id: str, listing_id: str) -> dict:
     )
 
 
-def press_haggle(interaction: dict, user_id: str, deal_id: str) -> dict:
-    """Buyer agrees to start negotiating a matched listing."""
+def _sfn():
+    return _client("stepfunctions")
+
+
+@cache
+def _client(name: str):
+    return boto3.client(name)
+
+
+def _deal_for(deal_id: str, user_id: str) -> tuple[dict | None, str | None]:
+    """The deal and which side this student is on, or (None, None) if not theirs."""
     deal = store.table("deals").get_item(Key={"deal_id": deal_id}).get("Item")
-    if not deal or deal["buyer_id"] != user_id:
-        return respond(notify.UPDATE_MESSAGE, {"content": "This match is no longer active."})
-    listing = store.table("listings").get_item(Key={"listing_id": deal["listing_id"]}).get("Item")
-    if not listing or listing.get("status") != "open":
-        _set_deal_state(deal_id, "closed")
-        return respond(
-            notify.UPDATE_MESSAGE,
-            {"content": "Sorry, that item is no longer available.", "components": []},
-        )
-    try:
-        _set_deal_state(deal_id, "accepted", expect="proposed")
-    except store.conditional_failed():
-        return respond(notify.UPDATE_MESSAGE, {"content": "You already answered this one."})
-    return respond(
-        notify.UPDATE_MESSAGE,
-        {
-            "content": f"Got it. Your agent will haggle for **{deal.get('title', 'the item')}** "
-            "and stay within your max price. You'll see each offer here.",
-            "components": [],
-        },
-    )
+    if not deal:
+        return None, None
+    if deal["seller_id"] == user_id:
+        return deal, "seller"
+    if deal["buyer_id"] == user_id:
+        return deal, "buyer"
+    return None, None
 
 
-def press_pass(interaction: dict, user_id: str, deal_id: str) -> dict:
-    deal = store.table("deals").get_item(Key={"deal_id": deal_id}).get("Item")
-    if deal and deal["buyer_id"] == user_id:
-        try:
-            _set_deal_state(deal_id, "passed", expect="proposed")
-        except store.conditional_failed():
-            pass
-    return respond(
-        notify.UPDATE_MESSAGE,
-        {"content": "No problem, I'll keep looking.", "embeds": [], "components": []},
-    )
-
-
-def _set_deal_state(deal_id: str, state: str, expect: str | None = None) -> None:
+def _set_deal_state(deal_id: str, state: str, expect: tuple[str, ...] = ()) -> None:
     kwargs = {}
     if expect:
-        kwargs["ConditionExpression"] = Attr("state").eq(expect)
+        kwargs["ConditionExpression"] = Attr("state").is_in(list(expect))
     store.table("deals").update_item(
         Key={"deal_id": deal_id},
         UpdateExpression="SET #st = :s, updated_at = :now",
@@ -476,13 +471,186 @@ def _set_deal_state(deal_id: str, state: str, expect: str | None = None) -> None
     )
 
 
+def press_haggle(interaction: dict, user_id: str, deal_id: str) -> dict:
+    """Buyer agrees to start negotiating a matched listing: start the deal's workflow."""
+    deal, side = _deal_for(deal_id, user_id)
+    if side != "buyer":
+        return respond(notify.UPDATE_MESSAGE, {"content": "This match is no longer active."})
+    listing = store.table("listings").get_item(Key={"listing_id": deal["listing_id"]}).get("Item")
+    if not listing or listing.get("status") != "open":
+        _set_deal_state(deal_id, "closed")
+        return respond(
+            notify.UPDATE_MESSAGE,
+            {"content": "Sorry, that item is no longer available.", "components": []},
+        )
+    try:
+        _set_deal_state(deal_id, "starting", expect=("proposed",))
+    except store.conditional_failed():
+        return respond(notify.UPDATE_MESSAGE, {"content": "You already answered this one."})
+
+    try:
+        execution = _sfn().start_execution(
+            stateMachineArn=os.environ["STATE_MACHINE_ARN"],
+            name=deal_id,
+            input=json.dumps({"deal_id": deal_id}),
+        )
+    except Exception:
+        _set_deal_state(deal_id, "proposed")
+        raise
+    store.table("deals").update_item(
+        Key={"deal_id": deal_id},
+        UpdateExpression="SET execution_arn = :e",
+        ExpressionAttributeValues={":e": execution["executionArn"]},
+    )
+    return respond(
+        notify.UPDATE_MESSAGE,
+        {
+            "content": f"Got it. Your agent is haggling for **{deal.get('title', 'the item')}** "
+            "and will stay within your max price.",
+            "components": [],
+        },
+    )
+
+
+def press_pass(interaction: dict, user_id: str, deal_id: str) -> dict:
+    deal, side = _deal_for(deal_id, user_id)
+    if side == "buyer":
+        try:
+            _set_deal_state(deal_id, "passed", expect=("proposed",))
+        except store.conditional_failed():
+            pass
+    return respond(
+        notify.UPDATE_MESSAGE,
+        {"content": "No problem, I'll keep looking.", "embeds": [], "components": []},
+    )
+
+
+def _answer_confirm(user_id: str, deal_id: str, confirmed: bool) -> dict:
+    deal, side = _deal_for(deal_id, user_id)
+    token = deal.get(f"confirm_token_{side}") if deal else None
+    if not token or deal.get("state") != "confirming":
+        return respond(
+            notify.UPDATE_MESSAGE, {"content": "This deal is no longer waiting.", "components": []}
+        )
+    try:
+        if confirmed:
+            _sfn().send_task_success(taskToken=token, output=json.dumps({"side": side}))
+        else:
+            _sfn().send_task_failure(taskToken=token, error="Declined", cause=side)
+    except Exception:
+        log.exception("task token for %s/%s rejected", deal_id, side)
+        return respond(
+            notify.UPDATE_MESSAGE, {"content": "This deal is no longer waiting.", "components": []}
+        )
+    store.table("deals").update_item(
+        Key={"deal_id": deal_id}, UpdateExpression=f"REMOVE confirm_token_{side}"
+    )
+    content = (
+        f"Confirmed: **{deal.get('title', 'item')}** for ${deal['agreed_price']}. "
+        "Waiting for the other student."
+        if confirmed
+        else "You declined the deal."
+    )
+    return respond(notify.UPDATE_MESSAGE, {"content": content, "components": []})
+
+
+def press_confirm(interaction: dict, user_id: str, deal_id: str) -> dict:
+    return _answer_confirm(user_id, deal_id, True)
+
+
+def press_decline(interaction: dict, user_id: str, deal_id: str) -> dict:
+    return _answer_confirm(user_id, deal_id, False)
+
+
+def stop_deal(user_id: str, deal_id: str) -> str:
+    """Stop a live negotiation. The other side learns only that it ended."""
+    deal, side = _deal_for(deal_id, user_id)
+    if not side:
+        return "I couldn't find that negotiation under your name."
+    try:
+        _set_deal_state(deal_id, "stopped", expect=ACTIVE_DEAL + ("proposed",))
+    except store.conditional_failed():
+        return "That negotiation has already ended."
+    if deal.get("execution_arn"):
+        try:
+            _sfn().stop_execution(executionArn=deal["execution_arn"], cause=f"stopped by {side}")
+        except Exception:
+            log.exception("could not stop %s", deal["execution_arn"])
+    other_id = deal["buyer_id"] if side == "seller" else deal["seller_id"]
+    news = (
+        f"**Haggle:** {deal.get('title', 'That item')} is no longer available."
+        if side == "seller"
+        else f"**Haggle:** The buyer has passed on {deal.get('title', 'your item')}."
+    )
+    try:
+        notify.dm(other_id, {"content": news})
+    except Exception:
+        log.exception("could not tell %s the deal stopped", other_id)
+    return "Negotiation stopped."
+
+
+def press_stop(interaction: dict, user_id: str, deal_id: str) -> dict:
+    return respond(
+        notify.UPDATE_MESSAGE, {"content": stop_deal(user_id, deal_id), "components": []}
+    )
+
+
+def press_limit(interaction: dict, user_id: str, deal_id: str) -> dict:
+    """Open a private form to change this student's own limit mid-deal."""
+    deal, side = _deal_for(deal_id, user_id)
+    if not side or deal.get("state") not in ACTIVE_DEAL:
+        return private("That negotiation has already ended.")
+    label = "New lowest price ($)" if side == "seller" else "New max price ($)"
+    return respond(
+        notify.MODAL,
+        {
+            "custom_id": f"limit:{deal_id}",
+            "title": "Change your private limit",
+            "components": [
+                notify.text_input(
+                    "amount", label, placeholder="Applies from the next round", max_length=6
+                )
+            ],
+        },
+    )
+
+
+def submit_limit(interaction: dict, user_id: str, deal_id: str) -> dict:
+    deal, side = _deal_for(deal_id, user_id)
+    if not side or deal.get("state") not in ACTIVE_DEAL:
+        return private("That negotiation has already ended.")
+    amount = _parse_price(_modal_values(interaction).get("amount", ""))
+    if amount is None:
+        return private("That needs to be a whole dollar amount, like `50`.")
+    if side == "seller":
+        if amount > deal["asking"]:
+            return private(
+                f"Your lowest price can't be above the asking price (${deal['asking']})."
+            )
+        record_id, table, key, field = deal["listing_id"], "listings", "listing_id", "floor_enc"
+        record = f"listing#{record_id}"
+    else:
+        record_id, table, key, field = deal["want_id"], "wants", "want_id", "ceiling_enc"
+        record = f"want#{record_id}"
+    store.table(table).update_item(
+        Key={key: record_id},
+        UpdateExpression=f"SET {field} = :v",
+        ExpressionAttributeValues={":v": store.encrypt_limit(amount, record, user_id)},
+    )
+    return private(f"Updated to ${amount}. Your agent uses it from the next round.")
+
+
 COMMANDS = {"sell": cmd_sell, "want": cmd_want, "deals": cmd_deals, "stop": cmd_stop}
-MODALS = {"sell": submit_sell, "want": submit_want}
+MODALS = {"sell": submit_sell, "want": submit_want, "limit": submit_limit}
 BUTTONS = {
     "publish": press_publish,
     "cancel": press_cancel,
     "haggle": press_haggle,
     "pass": press_pass,
+    "confirm": press_confirm,
+    "decline": press_decline,
+    "stop": press_stop,
+    "limit": press_limit,
 }
 
 

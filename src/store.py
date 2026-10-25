@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from functools import cache
 
 import boto3
+from boto3.dynamodb.conditions import Key  # noqa: F401  re-exported for callers
 
 _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 

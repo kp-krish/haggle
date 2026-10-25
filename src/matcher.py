@@ -94,6 +94,7 @@ def propose(listing: dict, want: dict) -> bool:
                 "seller_id": listing["seller_id"],
                 "buyer_id": want["buyer_id"],
                 "title": listing.get("title", ""),
+                "description": listing.get("description", ""),
                 "asking": listing["asking"],
                 "state": "proposed",
                 "created_at": store.now_iso(),

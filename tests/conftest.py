@@ -21,6 +21,7 @@ TABLES = {
 
 
 def _clear_caches():
+    import deals
     import interactions
     import listing_agent
     import llm
@@ -32,6 +33,8 @@ def _clear_caches():
         store._kms,
         store.discord_secret,
         interactions._lambda,
+        interactions._client,
+        deals._sfn,
         listing_agent._s3,
         llm._client,
         notify._dm_channel,

@@ -111,11 +111,14 @@ def test_deal_id_is_stable():
 
 
 @pytest.fixture
-def dm(aws):
+def dm(aws, monkeypatch):
+    monkeypatch.setenv("STATE_MACHINE_ARN", "arn:sm")
     with (
         mock.patch("notify.dm") as dm,
         mock.patch("store.discord_secret", return_value={"guild_id": "g1"}),
+        mock.patch("interactions._sfn") as sfn,
     ):
+        sfn.return_value.start_execution.return_value = {"executionArn": "arn:exec"}
         yield dm
 
 
@@ -194,8 +197,8 @@ def test_buyer_starts_haggling(dm):
     deal_id = matcher.deal_id_for("lst_1", "wnt_1")
 
     assert "no longer active" in press("333", f"haggle:{deal_id}")["data"]["content"]
-    assert "Your agent will haggle" in press("222", f"haggle:{deal_id}")["data"]["content"]
-    assert store.table("deals").get_item(Key={"deal_id": deal_id})["Item"]["state"] == "accepted"
+    assert "haggling" in press("222", f"haggle:{deal_id}")["data"]["content"]
+    assert store.table("deals").get_item(Key={"deal_id": deal_id})["Item"]["state"] == "starting"
     assert "already answered" in press("222", f"haggle:{deal_id}")["data"]["content"]
 
 
