@@ -18,6 +18,9 @@ async function haggleMembership(accessToken: string): Promise<Membership> {
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Discord({
+      // Discord now returns iss=https://discord.com on the callback (RFC 9207); without
+      // this, Auth.js compares it to a placeholder issuer and rejects the sign-in.
+      issuer: "https://discord.com",
       // guilds.members.read lets us check the student is in the campus server.
       authorization: { params: { scope: "identify guilds.members.read" } },
     }),
