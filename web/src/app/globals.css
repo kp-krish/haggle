@@ -1,23 +1,40 @@
 @import "tailwindcss";
 
-/* One accent, warm neutrals, nothing shiny. */
+/*
+ * Campus map meets departure board.
+ * Light "map paper" for browsing; a dark split-flap board for anything live.
+ */
 @theme {
-  --font-sans: var(--font-public-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-atkinson), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 
-  --color-paper: #fbfaf8;
-  --color-card: #ffffff;
-  --color-ink: #1c1917;
-  --color-muted: #6b645e;
-  --color-line: #e7e3de;
-  --color-accent: #b4440f;
-  --color-accent-ink: #ffffff;
-  --color-accent-soft: #fbeee6;
+  /* map */
+  --color-paper: #eef0e6;
+  --color-card: #fbfcf7;
+  --color-ink: #22342b;
+  --color-muted: #5f6f66;
+  --color-line: #cfd3c4;
+  --color-lawn: #cfe1bf;
+  --color-block: #dcd6c6;
+  --color-pin: #1f5fd1;
+  --color-spot: #e0662a;
+
+  /* board */
+  --color-panel: #1d2633;
+  --color-flap: #2b3646;
+  --color-flap-ink: #f3eadb;
+  --color-board-muted: #8d98aa;
+  --color-amber: #ffb23f;
+  --color-deal: #5fd38b;
+
+  /* states on paper */
   --color-ok: #2f6b45;
-  --color-ok-soft: #e8f2ec;
+  --color-ok-soft: #dcebd9;
   --color-warn: #8a5a00;
-  --color-warn-soft: #fbf1dc;
+  --color-warn-soft: #f4e8cf;
   --color-bad: #a1291f;
-  --color-bad-soft: #f9e6e4;
+  --color-bad-soft: #f4dedb;
 }
 
 body {
@@ -26,10 +43,46 @@ body {
 }
 
 ::selection {
-  background: var(--color-accent-soft);
+  background: #c9d9f6;
 }
 
-/* Prices line up and read as numbers. */
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Split-flap tile: a hairline across the middle where the flap folds. */
+.flap {
+  position: relative;
+  display: inline-block;
+  min-width: 0.95em;
+  text-align: center;
+  background: var(--color-flap);
+  color: var(--color-flap-ink);
+  border-radius: 2px;
+  box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.35);
+}
+.flap::after {
+  content: "";
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 1px;
+  background: rgb(0 0 0 / 0.42);
+}
+.flap.flip {
+  animation: flap-flip 0.22s ease-in;
+}
+@keyframes flap-flip {
+  0% { transform: scaleY(1); }
+  50% { transform: scaleY(0.08); }
+  100% { transform: scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flap.flip { animation: none; }
+}
+
+/* MapLibre controls in our palette. */
+.maplibregl-ctrl-attrib {
+  font-family: var(--font-sans);
+  font-size: 10px;
 }

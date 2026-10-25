@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { auth, signIn } from "@/auth";
-import { Button } from "@/components/ui";
+import { Button, Container, PageTitle } from "@/components/ui";
 
 export const metadata: Metadata = { title: "Sign in" };
 
@@ -19,16 +19,13 @@ export default async function SignInPage(props: PageProps<"/signin">) {
   const message = typeof error === "string" ? (ERRORS[error] ?? "Sign-in didn't work. Try again.") : null;
 
   return (
-    <div className="mx-auto max-w-sm space-y-6 py-12">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold">Sign in to Haggle</h1>
-        <p className="text-sm text-muted">
-          Use the Discord account you use in the campus server. Negotiations and pickup
-          details arrive there as private messages.
-        </p>
-      </div>
+    <Container narrow>
+    <div className="mx-auto max-w-sm space-y-6 py-8">
+      <PageTitle sub="Use the Discord account you use in the campus server. Negotiations and pickup details arrive there as private messages.">
+        Sign in
+      </PageTitle>
       {message && (
-        <p role="alert" className="rounded-md bg-bad-soft px-3 py-2 text-sm text-bad">
+        <p role="alert" className="border-2 border-bad/40 bg-bad-soft px-3 py-2 text-sm text-bad">
           {message}
         </p>
       )}
@@ -41,5 +38,6 @@ export default async function SignInPage(props: PageProps<"/signin">) {
         <Button className="w-full">Continue with Discord</Button>
       </form>
     </div>
+    </Container>
   );
 }

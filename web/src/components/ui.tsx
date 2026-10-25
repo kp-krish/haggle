@@ -2,43 +2,51 @@ import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 
 import type { Badge } from "@/lib/types";
-import { money } from "@/lib/format";
 
-type Tone = "neutral" | "ok" | "warn" | "bad" | "accent";
+export type Tone = "live" | "ok" | "warn" | "bad" | "neutral";
 
-const TONES: Record<Tone, string> = {
-  neutral: "bg-line/60 text-muted",
-  ok: "bg-ok-soft text-ok",
-  warn: "bg-warn-soft text-warn",
-  bad: "bg-bad-soft text-bad",
-  accent: "bg-accent-soft text-accent",
-};
-
-export function Pill({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
+/** Text on split-flap tiles: the board's voice, used for prices and the logo. */
+export function Flaps({
+  text,
+  className = "",
+  size = "md",
+}: {
+  text: string;
+  className?: string;
+  size?: "sm" | "md" | "lg";
+}) {
+  const sizes = { sm: "text-sm px-0.5 py-0", md: "text-base px-1 py-0.5", lg: "text-2xl px-1.5 py-1" };
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${TONES[tone]}`}
-    >
-      {children}
+    <span className={`inline-flex gap-[2px] font-mono font-semibold ${className}`} aria-label={text}>
+      {[...text].map((ch, i) => (
+        <span key={i} aria-hidden className={`flap ${sizes[size]}`}>
+          {ch === " " ? " " : ch}
+        </span>
+      ))}
     </span>
   );
 }
 
-/** The price, shaped like a paper tag: the one recurring visual motif. */
-export function PriceTag({ amount, size = "md" }: { amount: number; size?: "md" | "lg" }) {
-  const big = size === "lg";
+export function Price({ amount, size = "md" }: { amount: number; size?: "sm" | "md" | "lg" }) {
+  return <Flaps text={`$${amount}`} size={size} className="tabular" />;
+}
+
+const LIGHTS: Record<Tone, string> = {
+  live: "text-pin",
+  ok: "text-ok",
+  warn: "text-warn",
+  bad: "text-bad",
+  neutral: "text-muted",
+};
+
+/** A status light: coloured dot plus a short uppercase label. */
+export function Status({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
   return (
     <span
-      className={`tabular relative inline-flex items-center rounded-r-md bg-accent font-semibold text-accent-ink ${
-        big ? "py-1.5 pr-3 pl-5 text-xl" : "py-0.5 pr-2 pl-4 text-sm"
-      }`}
-      style={{ clipPath: "polygon(10px 0, 100% 0, 100% 100%, 10px 100%, 0 50%)" }}
+      className={`inline-flex items-center gap-1.5 font-display text-sm font-semibold uppercase tracking-wider ${LIGHTS[tone]}`}
     >
-      <span
-        aria-hidden
-        className={`absolute rounded-full bg-paper ${big ? "left-2 size-1.5" : "left-1.5 size-1"}`}
-      />
-      {money(amount)}
+      <span aria-hidden className="size-2 rounded-full bg-current" />
+      {children}
     </span>
   );
 }
@@ -48,8 +56,14 @@ export function BadgeList({ badges }: { badges: Badge[] }) {
   return (
     <ul className="flex flex-wrap gap-1.5">
       {badges.map((b) => (
-        <li key={b.id} title={b.detail}>
-          <Pill tone={b.id === "new" ? "neutral" : "ok"}>{b.label}</Pill>
+        <li
+          key={b.id}
+          title={b.detail}
+          className={`rounded-sm border px-1.5 py-px font-display text-xs font-semibold uppercase tracking-wider ${
+            b.id === "new" ? "border-line text-muted" : "border-ok/40 bg-ok-soft text-ok"
+          }`}
+        >
+          {b.label}
         </li>
       ))}
     </ul>
@@ -57,11 +71,12 @@ export function BadgeList({ badges }: { badges: Badge[] }) {
 }
 
 const BUTTON =
-  "inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+  "inline-flex items-center justify-center gap-2 px-4 py-2 font-display text-base font-semibold uppercase tracking-wider transition-colors disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pin";
 const VARIANTS = {
-  primary: "bg-accent text-accent-ink hover:bg-[#9a390c]",
-  secondary: "border border-line bg-card text-ink hover:bg-paper",
-  danger: "border border-bad/30 bg-card text-bad hover:bg-bad-soft",
+  primary: "bg-ink text-card hover:bg-[#2f473b]",
+  secondary: "border-2 border-ink bg-card text-ink hover:bg-paper",
+  danger: "border-2 border-bad/50 bg-card text-bad hover:bg-bad-soft",
+  board: "bg-amber text-panel hover:bg-[#ffc265]",
 };
 
 export function Button({
@@ -80,18 +95,10 @@ export function ButtonLink({
   return <Link className={`${BUTTON} ${VARIANTS[variant]} ${className}`} {...props} />;
 }
 
-export function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: ReactNode;
-}) {
+export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="block space-y-1.5">
-      <span className="block text-sm font-medium">{label}</span>
+      <span className="block font-display text-sm font-semibold uppercase tracking-wider">{label}</span>
       {children}
       {hint && <span className="block text-xs text-muted">{hint}</span>}
     </label>
@@ -99,13 +106,21 @@ export function Field({
 }
 
 export const INPUT =
-  "block w-full rounded-md border border-line bg-card px-3 py-2 text-sm placeholder:text-muted/70 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20";
+  "block w-full border-2 border-line bg-card px-3 py-2 text-sm placeholder:text-muted/70 focus:border-pin focus:outline-none";
 
-export function Section({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
+export function Section({
+  title,
+  children,
+  action,
+}: {
+  title: string;
+  children: ReactNode;
+  action?: ReactNode;
+}) {
   return (
     <section className="space-y-4">
-      <div className="flex items-baseline justify-between gap-4">
-        <h2 className="text-lg font-semibold">{title}</h2>
+      <div className="flex items-end justify-between gap-4 border-b-2 border-ink pb-2">
+        <h2 className="font-display text-2xl font-bold uppercase tracking-wide">{title}</h2>
         {action}
       </div>
       {children}
@@ -114,9 +129,24 @@ export function Section({ title, children, action }: { title: string; children: 
 }
 
 export function Empty({ children }: { children: ReactNode }) {
+  return <p className="border-2 border-dashed border-line px-4 py-8 text-center text-sm text-muted">{children}</p>;
+}
+
+export function Container({ children, narrow = false }: { children: ReactNode; narrow?: boolean }) {
   return (
-    <p className="rounded-lg border border-dashed border-line px-4 py-8 text-center text-sm text-muted">
-      {children}
-    </p>
+    <main className={`mx-auto w-full px-4 py-8 sm:px-6 ${narrow ? "max-w-2xl" : "max-w-7xl"}`}>{children}</main>
+  );
+}
+
+export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`border-2 border-ink bg-card p-4 ${className}`}>{children}</div>;
+}
+
+export function PageTitle({ children, sub }: { children: ReactNode; sub?: ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <h1 className="font-display text-4xl font-bold uppercase leading-none tracking-wide">{children}</h1>
+      {sub && <p className="text-sm text-muted">{sub}</p>}
+    </div>
   );
 }

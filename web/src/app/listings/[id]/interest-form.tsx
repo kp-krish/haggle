@@ -23,7 +23,7 @@ export function InterestForm({
 
   if (state?.ok) {
     return (
-      <p role="status" className="rounded-md bg-ok-soft px-4 py-3 text-sm text-ok">
+      <p role="status" className="border-2 border-ok/40 bg-ok-soft px-4 py-3 text-sm text-ok">
         {state.ok}
       </p>
     );

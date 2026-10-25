@@ -39,12 +39,12 @@ export function WindowsField({ defaultValue = "" }: { defaultValue?: string }) {
 export function StyleField({ defaultValue = "balanced" }: { defaultValue?: string }) {
   return (
     <fieldset className="space-y-1.5">
-      <legend className="text-sm font-medium">How should your agent negotiate?</legend>
+      <legend className="font-display text-sm font-semibold uppercase tracking-wider">How should your agent negotiate?</legend>
       <div className="grid gap-2 sm:grid-cols-3">
         {STYLES.map((s) => (
           <label
             key={s.value}
-            className="flex cursor-pointer flex-col rounded-md border border-line bg-card px-3 py-2 text-sm has-[:checked]:border-accent has-[:checked]:bg-accent-soft"
+            className="flex cursor-pointer flex-col border-2 border-line bg-card px-3 py-2 text-sm has-[:checked]:border-pin has-[:checked]:bg-pin/5"
           >
             <span className="flex items-center gap-2 font-medium">
               <input
@@ -52,7 +52,7 @@ export function StyleField({ defaultValue = "balanced" }: { defaultValue?: strin
                 name="style"
                 value={s.value}
                 defaultChecked={s.value === defaultValue}
-                className="accent-accent"
+                className="accent-pin"
               />
               {s.label}
             </span>

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { Container, PageTitle } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { MeResponse } from "@/lib/types";
 
@@ -10,20 +11,17 @@ export const metadata: Metadata = { title: "Sell" };
 export default async function SellPage() {
   const me = await api<MeResponse>("GET", "/web/me");
   return (
+    <Container>
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Sell something</h1>
-        <p className="text-sm text-muted">
-          It also shows up in the #listings channel on Discord.
-        </p>
-      </div>
+      <PageTitle sub="It shows up on the map and in the #listings channel on Discord.">Sell something</PageTitle>
       {me.profile.paused ? (
-        <p className="rounded-md bg-bad-soft px-4 py-3 text-sm text-bad">
+        <p className="border-2 border-bad/40 bg-bad-soft px-4 py-3 text-sm text-bad">
           Your account is paused from new deals after repeated missed pickups.
         </p>
       ) : (
         <SellForm profile={me.profile} />
       )}
     </div>
+    </Container>
   );
 }

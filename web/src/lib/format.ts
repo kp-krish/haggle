@@ -1,3 +1,5 @@
+import type { Tone } from "@/components/ui";
+
 const CATEGORY_LABELS: Record<string, string> = {
   "bikes-transport": "Bikes & transport",
   "sports-outdoors": "Sports & outdoors",
@@ -27,16 +29,14 @@ export function since(iso: string): string {
   return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
-type Tone = "neutral" | "ok" | "warn" | "bad" | "accent";
-
 /** How a deal's state reads to the student, and what colour it gets. */
 export function dealStatus(state: string, pickup?: string): { label: string; tone: Tone } {
   switch (state) {
     case "proposed":
-      return { label: "Waiting for you to start, in Discord", tone: "accent" };
+      return { label: "Waiting for you to start, in Discord", tone: "live" };
     case "starting":
     case "negotiating":
-      return { label: "Negotiating in Discord", tone: "accent" };
+      return { label: "Negotiating in Discord", tone: "live" };
     case "scheduling":
       return { label: "Price agreed, finding a pickup time", tone: "warn" };
     case "confirming":
@@ -59,7 +59,7 @@ export function listingStatus(status: string): { label: string; tone: Tone } {
     case "processing":
       return { label: "Writing your listing", tone: "warn" };
     case "preview":
-      return { label: "Ready to publish", tone: "accent" };
+      return { label: "Ready to publish", tone: "live" };
     case "publishing":
       return { label: "Publishing", tone: "warn" };
     case "open":

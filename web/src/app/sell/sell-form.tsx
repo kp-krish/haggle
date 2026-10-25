@@ -62,8 +62,8 @@ export function SellForm({ profile }: { profile: Profile }) {
   return (
     <form onSubmit={onSubmit} className="grid gap-8 md:grid-cols-[2fr_3fr]">
       <div className="space-y-2">
-        <span className="block text-sm font-medium">Photo</span>
-        <label className="relative flex aspect-[4/3] cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-dashed border-line bg-card text-sm text-muted hover:border-accent">
+        <span className="block font-display text-sm font-semibold uppercase tracking-wider">Photo</span>
+        <label className="relative flex aspect-[4/3] cursor-pointer items-center justify-center overflow-hidden border-2 border-dashed border-ink/40 bg-card text-sm text-muted hover:border-pin">
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element -- local blob preview
             <img src={preview} alt="Your item" className="absolute inset-0 size-full object-cover" />

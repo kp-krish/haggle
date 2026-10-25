@@ -29,6 +29,8 @@ export type Deal = {
   side: "seller" | "buyer";
   agreed_price?: number;
   pickup?: string;
+  place_id?: string;
+  spot_name?: string;
   created_at: string;
   source?: string;
 };
@@ -41,6 +43,32 @@ export type Profile = {
   style: string;
   paused: boolean;
 };
+
+export type BoardRow = {
+  deal_id: string | null;
+  listing_id: string;
+  title: string;
+  asking: number;
+  state: string;
+  rounds: number;
+  price: number | null;
+  mine: boolean;
+  side?: "seller" | "buyer";
+  seller_offer?: number | null;
+  buyer_offer?: number | null;
+  updated_at: string;
+};
+
+export type Area = { label: string; lat: number; lng: number; bounds: [[number, number], [number, number]] };
+export type Place = {
+  place_id: string;
+  name: string;
+  area: string;
+  lat: number;
+  lng: number;
+  curbside: boolean;
+};
+export type PlacesResponse = { areas: Record<string, Area>; places: Place[] };
 
 export type BrowseResponse = { listings: Listing[]; categories: string[]; areas: string[] };
 export type MeResponse = { profile: Profile; listings: Listing[]; deals: Deal[] };

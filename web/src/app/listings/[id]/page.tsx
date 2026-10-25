@@ -5,11 +5,12 @@ import { notFound } from "next/navigation";
 import { discardListing, publishListing, stopListing } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { CampusMap } from "@/components/campus-map-lazy";
 import { ListingPhoto } from "@/components/listing-card";
-import { BadgeList, Pill, PriceTag } from "@/components/ui";
+import { BadgeList, Container, Panel, Price, Status } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { areaLabel, categoryLabel, dealStatus, listingStatus, since } from "@/lib/format";
-import type { Listing, MeResponse } from "@/lib/types";
+import type { Listing, MeResponse, PlacesResponse } from "@/lib/types";
 
 import { InterestForm } from "./interest-form";
 
@@ -20,52 +21,77 @@ const WORKING = ["processing", "publishing"];
 export default async function ListingPage(props: PageProps<"/listings/[id]">) {
   const { id } = await props.params;
   let listing: Listing;
+  let places: PlacesResponse;
   try {
-    listing = await api<Listing>("GET", `/web/listings/${id}`);
+    [listing, places] = await Promise.all([
+      api<Listing>("GET", `/web/listings/${id}`),
+      api<PlacesResponse>("GET", "/web/places"),
+    ]);
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) notFound();
     throw e;
   }
   const status = listingStatus(listing.status);
   const working = WORKING.includes(listing.status);
+  const zone = places.areas[listing.area] ? listing.area : undefined;
+  const nearby = places.places.filter((p) => !zone || p.area === zone);
 
   return (
-    <div className="space-y-6">
+    <Container>
       {working && <AutoRefresh />}
-      <Link href="/" className="text-sm text-muted hover:text-ink">
-        ← Back to browsing
-      </Link>
+      <div className="space-y-6">
+        <Link href="/" className="font-display text-sm font-semibold uppercase tracking-wider text-muted hover:text-ink">
+          ← Back to the map
+        </Link>
 
-      <div className="grid gap-8 md:grid-cols-[3fr_2fr]">
-        <div className="relative aspect-[4/3] overflow-hidden rounded-lg border border-line bg-card">
-          {working && !listing.photo ? (
-            <div className="flex h-full items-center justify-center text-sm text-muted">
-              Preparing your photo…
+        <div className="grid gap-8 lg:grid-cols-[3fr_2fr]">
+          <div className="space-y-6">
+            <div className="relative aspect-[4/3] max-w-full overflow-hidden border-2 border-ink bg-block/40">
+              {working && !listing.photo ? (
+                <div className="flex h-full items-center justify-center text-sm text-muted">Preparing your photo…</div>
+              ) : (
+                <ListingPhoto listing={listing} sizes="(min-width: 1024px) 60vw, 100vw" />
+              )}
             </div>
-          ) : (
-            <ListingPhoto listing={listing} sizes="(min-width: 768px) 60vw, 100vw" />
-          )}
-        </div>
-
-        <div className="space-y-6">
-          <div className="space-y-3">
-            {listing.mine && <Pill tone={status.tone}>{status.label}</Pill>}
-            <h1 className="text-2xl font-semibold leading-tight">
-              {listing.title ?? (working ? "Writing your listing…" : "Untitled")}
-            </h1>
-            {listing.status !== "processing" && <PriceTag amount={listing.asking} size="lg" />}
-            {listing.description && <p className="text-muted">{listing.description}</p>}
-            <p className="text-xs text-muted">
-              {categoryLabel(listing.category)} · {areaLabel(listing.area)} · listed{" "}
-              {since(listing.created_at)}
-              {listing.large && " · needs a car or two people"}
-            </p>
+            <div className="space-y-2">
+              <h2 className="font-display text-xl font-bold uppercase tracking-wide">
+                Where you&apos;d meet
+              </h2>
+              <div className="relative h-72 border-2 border-ink">
+                <CampusMap areas={places.areas} places={places.places} activeArea={zone} mode="focus" />
+              </div>
+              <ul className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted">
+                {nearby.map((p) => (
+                  <li key={p.place_id} className="inline-flex items-center gap-1.5">
+                    <span aria-hidden className="size-2 rotate-45 bg-spot" />
+                    {p.name}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted">
+                The exact spot is picked from these once you both agree, based on both your schedules.
+              </p>
+            </div>
           </div>
 
-          {listing.mine ? <SellerPanel listing={listing} /> : <BuyerPanel listing={listing} />}
+          <div className="space-y-6">
+            <div className="space-y-3">
+              {listing.mine && <Status tone={status.tone}>{status.label}</Status>}
+              <h1 className="font-display text-4xl font-bold uppercase leading-none tracking-wide text-balance">
+                {listing.title ?? (working ? "Writing your listing…" : "Untitled")}
+              </h1>
+              {listing.status !== "processing" && <Price amount={listing.asking} size="lg" />}
+              {listing.description && <p className="text-muted">{listing.description}</p>}
+              <p className="text-xs text-muted">
+                {categoryLabel(listing.category)} · {areaLabel(listing.area)} · listed {since(listing.created_at)}
+                {listing.large && " · needs a car or two people"}
+              </p>
+            </div>
+            {listing.mine ? <SellerPanel listing={listing} /> : <BuyerPanel listing={listing} />}
+          </div>
         </div>
       </div>
-    </div>
+    </Container>
   );
 }
 
@@ -74,15 +100,14 @@ function SellerPanel({ listing }: { listing: Listing }) {
     case "processing":
       return <Note>Writing the title and description from your photo. This takes a few seconds.</Note>;
     case "publishing":
-      return <Note>Publishing to the site and the #listings channel…</Note>;
+      return <Note>Publishing to the map and the #listings channel…</Note>;
     case "preview":
       return (
-        <div className="space-y-3 rounded-lg border border-line bg-card p-4">
+        <Panel className="space-y-3">
           <p className="text-sm">
-            This is how your listing will look. Your lowest price is saved privately; only
-            your agent can read it.
+            This is how your listing will look. Your lowest price is saved privately; only your agent can read it.
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <ActionButton action={publishListing.bind(null, listing.listing_id)} pendingLabel="Publishing…">
               Publish
             </ActionButton>
@@ -90,28 +115,27 @@ function SellerPanel({ listing }: { listing: Listing }) {
               Discard
             </ActionButton>
           </div>
-        </div>
+        </Panel>
       );
     case "rejected":
       return (
         <Note tone="bad">
-          This item can&apos;t be listed on Haggle
-          {listing.rejected_reason ? `: ${listing.rejected_reason}` : "."}
+          This item can&apos;t be listed on Haggle{listing.rejected_reason ? `: ${listing.rejected_reason}` : "."}
         </Note>
       );
     case "error":
       return <Note tone="bad">Something went wrong writing this listing. Try listing it again.</Note>;
     case "open":
       return (
-        <div className="space-y-3 rounded-lg border border-line bg-card p-4">
+        <Panel className="space-y-3">
           <p className="text-sm">
-            Live. When a buyer is interested, your agent negotiates in your Discord messages
-            and never goes below your lowest price.
+            Live. When a buyer is interested, your agent negotiates in your Discord messages and never goes below
+            your lowest price.
           </p>
           <ActionButton action={stopListing.bind(null, listing.listing_id)} variant="danger">
             Take it down
           </ActionButton>
-        </div>
+        </Panel>
       );
     default:
       return null;
@@ -120,8 +144,8 @@ function SellerPanel({ listing }: { listing: Listing }) {
 
 async function BuyerPanel({ listing }: { listing: Listing }) {
   const seller = (
-    <div className="space-y-2">
-      <p className="text-sm font-medium">About the seller</p>
+    <div className="space-y-2 border-t-2 border-ink pt-3">
+      <p className="font-display text-sm font-semibold uppercase tracking-wider">About the seller</p>
       {listing.seller_badges.length ? (
         <BadgeList badges={listing.seller_badges} />
       ) : (
@@ -135,33 +159,28 @@ async function BuyerPanel({ listing }: { listing: Listing }) {
     const s = dealStatus(listing.my_deal.state, listing.my_deal.pickup);
     return (
       <div className="space-y-5">
-        <div className="space-y-2 rounded-lg border border-line bg-card p-4">
-          <Pill tone={s.tone}>{s.label}</Pill>
-          <p className="text-sm text-muted">
-            Follow the negotiation and confirm the deal in your Discord messages.
-          </p>
-        </div>
+        <Panel className="space-y-2">
+          <Status tone={s.tone}>{s.label}</Status>
+          <p className="text-sm text-muted">Follow the negotiation and confirm the deal in your Discord messages.</p>
+        </Panel>
         {seller}
       </div>
     );
   }
-  if (listing.status !== "open") {
-    return <Note>This item is no longer available.</Note>;
-  }
+  if (listing.status !== "open") return <Note>This item is no longer available.</Note>;
+
   const me = await api<MeResponse>("GET", "/web/me");
   return (
     <div className="space-y-6">
-      {seller}
-      <div className="space-y-3 rounded-lg border border-line bg-card p-4">
-        <h2 className="font-semibold">Interested?</h2>
+      <Panel className="space-y-4">
+        <h2 className="font-display text-2xl font-bold uppercase tracking-wide">Make an offer</h2>
         {me.profile.paused ? (
-          <p className="text-sm text-bad">
-            Your account is paused from new deals after repeated missed pickups.
-          </p>
+          <p className="text-sm text-bad">Your account is paused from new deals after repeated missed pickups.</p>
         ) : (
           <InterestForm listingId={listing.listing_id} asking={listing.asking} profile={me.profile} />
         )}
-      </div>
+      </Panel>
+      {seller}
     </div>
   );
 }
@@ -169,7 +188,9 @@ async function BuyerPanel({ listing }: { listing: Listing }) {
 function Note({ children, tone }: { children: React.ReactNode; tone?: "bad" }) {
   return (
     <p
-      className={`rounded-lg px-4 py-3 text-sm ${tone === "bad" ? "bg-bad-soft text-bad" : "bg-card text-muted border border-line"}`}
+      className={`border-2 px-4 py-3 text-sm ${
+        tone === "bad" ? "border-bad/40 bg-bad-soft text-bad" : "border-line bg-card text-muted"
+      }`}
     >
       {children}
     </p>
