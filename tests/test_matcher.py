@@ -57,8 +57,36 @@ def test_same_category_without_shared_words_does_not_match():
     assert matcher.score(microwave, FRIDGE_WANT) == 0
 
 
-def test_different_category_does_not_match():
-    assert matcher.score({**FRIDGE, "category": "furniture"}, FRIDGE_WANT) == 0
+def test_different_category_needs_strong_word_overlap():
+    # "mini fridge" phrase + "mini" + "fridge" words: strong enough across categories.
+    assert matcher.score({**FRIDGE, "category": "other"}, FRIDGE_WANT) >= 2
+    # One weak shared word is not enough across categories.
+    lamp = {
+        **FRIDGE,
+        "title": "Lamp",
+        "description": "",
+        "seller_notes": "lamp",
+        "category": "decor",
+    }
+    assert matcher.score(lamp, {**FRIDGE_WANT, "query": "lamp oil", "keywords": []}) == 0
+
+
+def test_listing_filed_as_other_still_meets_specific_want(dm):
+    bottle = {
+        **FRIDGE,
+        "title": "Under Armour Water Bottle",
+        "description": "",
+        "seller_notes": "water bottle",
+        "category": "other",
+    }
+    store.table("listings").put_item(Item=bottle)
+    want = {
+        **FRIDGE_WANT,
+        "query": "water bottle",
+        "keywords": ["water bottle", "sipper"],
+        "category": "sports-outdoors",
+    }
+    assert matcher.handler(stream_event(want), None) == {"proposed": 1}
 
 
 def test_seller_never_matches_own_want():

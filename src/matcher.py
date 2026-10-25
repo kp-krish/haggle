@@ -16,11 +16,13 @@ from boto3.dynamodb.types import TypeDeserializer
 
 import notify
 import store
+from categories import neighbours
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
 
 MAX_MATCHES_PER_EVENT = 5
+CROSS_CATEGORY_MIN_HITS = 2
 STOPWORDS = {
     "a", "an", "and", "the", "for", "with", "in", "on", "of", "to", "my", "i", "is", "it",
     "cheap", "used", "good", "great", "condition", "works", "small", "big", "new", "like",
@@ -45,16 +47,17 @@ def listing_text(listing: dict) -> str:
 def score(listing: dict, want: dict) -> int:
     """How many of the buyer's search terms the listing mentions. 0 means no match.
 
-    A multi-word keyword ("desk chair") counts when all its words appear.
+    A multi-word keyword ("desk chair") counts when all its words appear. Across
+    categories the bar is higher, so a lamp listing doesn't match "lamp oil".
     """
-    if listing.get("category") != want.get("category"):
-        return 0
     if listing.get("seller_id") == want.get("buyer_id"):
         return 0
     have = words(listing_text(listing))
     phrases = [words(k) for k in want.get("keywords", [])]
     hits = sum(1 for p in phrases if p and p <= have)
     hits += len(words(want.get("query", "")) & have)
+    if listing.get("category") != want.get("category") and hits < CROSS_CATEGORY_MIN_HITS:
+        return 0
     if hits and listing.get("area") == want.get("area"):
         hits += 1
     return hits
@@ -65,14 +68,18 @@ def deal_id_for(listing_id: str, want_id: str) -> str:
     return "deal_" + hashlib.sha256(f"{listing_id}|{want_id}".encode()).hexdigest()[:24]
 
 
-def _open_by_category(table: str, category: str) -> list[dict]:
-    resp = store.table(table).query(
-        IndexName="by_category",
-        KeyConditionExpression=Key("category").eq(category),
-        ScanIndexForward=False,
-        Limit=100,
-    )
-    return [i for i in resp.get("Items", []) if i.get("status") == "open"]
+def _open_candidates(table: str, category: str) -> list[dict]:
+    """Open items in this category and its neighbours (see categories.neighbours)."""
+    items = []
+    for cat in neighbours(category):
+        resp = store.table(table).query(
+            IndexName="by_category",
+            KeyConditionExpression=Key("category").eq(cat),
+            ScanIndexForward=False,
+            Limit=100,
+        )
+        items += [i for i in resp.get("Items", []) if i.get("status") == "open"]
+    return items
 
 
 def propose(listing: dict, want: dict) -> bool:
@@ -133,13 +140,13 @@ def propose(listing: dict, want: dict) -> bool:
 
 
 def on_listing_open(listing: dict) -> int:
-    wants = _open_by_category("wants", listing.get("category", "other"))
+    wants = _open_candidates("wants", listing.get("category", "other"))
     ranked = sorted(((score(listing, w), w) for w in wants), key=lambda pair: pair[0], reverse=True)
     return sum(propose(listing, w) for s, w in ranked[:MAX_MATCHES_PER_EVENT] if s > 0)
 
 
 def on_want_open(want: dict) -> int:
-    listings = _open_by_category("listings", want.get("category", "other"))
+    listings = _open_candidates("listings", want.get("category", "other"))
     ranked = sorted(
         ((score(item, want), item) for item in listings),
         key=lambda pair: pair[0],

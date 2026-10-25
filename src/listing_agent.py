@@ -24,23 +24,12 @@ from PIL import Image
 import llm
 import notify
 import store
+from categories import CATEGORIES
 from scheduler import CAMPUS_TZ, validate_windows
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
 
-CATEGORIES = (
-    "furniture",
-    "appliances",
-    "electronics",
-    "textbooks",
-    "kitchen",
-    "clothing",
-    "decor",
-    "bikes-transport",
-    "sports-outdoors",
-    "other",
-)
 MAX_IMAGE_SIDE = 1568
 
 LISTING_SYSTEM = f"""You write short, honest marketplace listings for college students \
