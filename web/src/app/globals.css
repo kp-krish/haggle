@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+/* One accent, warm neutrals, nothing shiny. */
+@theme {
+  --font-sans: var(--font-public-sans), ui-sans-serif, system-ui, sans-serif;
+
+  --color-paper: #fbfaf8;
+  --color-card: #ffffff;
+  --color-ink: #1c1917;
+  --color-muted: #6b645e;
+  --color-line: #e7e3de;
+  --color-accent: #b4440f;
+  --color-accent-ink: #ffffff;
+  --color-accent-soft: #fbeee6;
+  --color-ok: #2f6b45;
+  --color-ok-soft: #e8f2ec;
+  --color-warn: #8a5a00;
+  --color-warn-soft: #fbf1dc;
+  --color-bad: #a1291f;
+  --color-bad-soft: #f9e6e4;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+::selection {
+  background: var(--color-accent-soft);
+}
+
+/* Prices line up and read as numbers. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
