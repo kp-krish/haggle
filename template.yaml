@@ -111,6 +111,7 @@ Resources:
         Variables:
           WEB_SECRET_ARN: !Ref WebSecret
           WORKER_FUNCTION: !Ref ListingAgentFunction
+          DEALS_FUNCTION: !Ref DealsFunction
       Events:
         Web:
           Type: HttpApi
@@ -138,6 +139,7 @@ Resources:
         - DynamoDBCrudPolicy: { TableName: !Ref DealsTable }
         - S3CrudPolicy: { BucketName: !Ref PhotosBucket }
         - LambdaInvokePolicy: { FunctionName: !Ref ListingAgentFunction }
+        - LambdaInvokePolicy: { FunctionName: !Ref DealsFunction }
 
   WebApiErrorsAlarm:
     Type: AWS::CloudWatch::Alarm

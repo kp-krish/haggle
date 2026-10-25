@@ -38,6 +38,7 @@ from interactions import (
     CLOSED_DEAL,
     MAX_PRICE,
     PAUSED,
+    cancel_booking,
     is_paused,
     parse_price,
     parse_style,
@@ -499,6 +500,13 @@ def stop_my_deal(user_id: str, deal_id: str) -> dict:
     return {"message": stop_deal(user_id, deal_id)}
 
 
+def cancel_my_booking(user_id: str, deal_id: str) -> dict:
+    ok, message = cancel_booking(user_id, deal_id)
+    if not ok:
+        raise ApiError(409, message)
+    return {"message": message}
+
+
 def _run(job: str, **fields) -> None:
     """Hand slow work to the listing agent, as the Discord handler does."""
     _lambda().invoke(
@@ -523,6 +531,7 @@ ROUTES = [
     ("GET", r"/web/me", lambda u, m, q, b: my_haggle(u)),
     ("PUT", r"/web/me/preferences", lambda u, m, q, b: update_preferences(u, b)),
     ("POST", rf"/web/deals/{ID}/stop", lambda u, m, q, b: stop_my_deal(u, m[1])),
+    ("POST", rf"/web/deals/{ID}/cancel", lambda u, m, q, b: cancel_my_booking(u, m[1])),
 ]
 
 

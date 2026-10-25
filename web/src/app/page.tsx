@@ -7,6 +7,7 @@ import { NowLine } from "@/components/now-line";
 import { ButtonLink, Empty } from "@/components/ui";
 import { api } from "@/lib/api";
 import { categoryLabel } from "@/lib/format";
+import { DISCORD_INVITE } from "@/lib/links";
 import type { BoardRow, BrowseResponse, Listing, PlacesResponse } from "@/lib/types";
 
 const ZONES = ["north", "central", "south"];
@@ -251,7 +252,15 @@ function Intro() {
             List something in a minute or name your price for something you like. Your agent negotiates in Discord,
             keeps your limit to itself, and sets up a pickup at a busy spot on campus.
           </p>
-          <ButtonLink href="/signin">Sign in with Discord</ButtonLink>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+            <ButtonLink href="/signin">Sign in with Discord</ButtonLink>
+            <a href={DISCORD_INVITE} target="_blank" rel="noreferrer" className="text-sm font-semibold underline underline-offset-4">
+              New here? Join the Discord first
+            </a>
+          </div>
+          <Link href="/how" className="block text-sm text-muted underline-offset-4 hover:text-ink hover:underline">
+            How Haggle works
+          </Link>
         </div>
       </div>
       <div className="pb-16">

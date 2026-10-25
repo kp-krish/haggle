@@ -9,6 +9,7 @@ const NAV = [
   { href: "/sell", label: "Sell" },
   { href: "/me", label: "My deals" },
 ];
+const HOW = { href: "/how", label: "How it works" };
 
 export async function Header() {
   const session = await auth();
@@ -20,15 +21,13 @@ export async function Header() {
         <Link href="/" className="text-[21px] font-bold tracking-[-0.035em]">
           haggle<span className="text-pine">.</span>
         </Link>
-        {user && (
-          <nav className="flex gap-5 text-[15px] text-muted">
-            {NAV.map((n) => (
-              <Link key={n.href} href={n.href} className="hover:text-ink">
-                {n.label}
-              </Link>
-            ))}
-          </nav>
-        )}
+        <nav className="flex gap-5 text-[15px] text-muted">
+          {(user ? [...NAV, HOW] : [HOW]).map((n) => (
+            <Link key={n.href} href={n.href} className={`hover:text-ink ${n === HOW && user ? "hidden sm:inline" : ""}`}>
+              {n.label}
+            </Link>
+          ))}
+        </nav>
         <div className="ml-auto flex items-center gap-4 text-sm text-muted">
           <ThemeToggle />
           {user ? (

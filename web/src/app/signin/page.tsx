@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { auth, signIn } from "@/auth";
 import { Button, Container, PageTitle } from "@/components/ui";
+import { DISCORD_INVITE } from "@/lib/links";
 
 export const metadata: Metadata = { title: "Sign in" };
 
@@ -33,6 +35,16 @@ export default async function SignInPage(props: PageProps<"/signin">) {
         >
           <Button>Continue with Discord</Button>
         </form>
+        <p className="border-t border-line pt-5 text-sm text-muted">
+          Not in the server yet?{" "}
+          <a href={DISCORD_INVITE} target="_blank" rel="noreferrer" className="font-semibold text-ink underline underline-offset-4">
+            Join Haggle on Discord
+          </a>{" "}
+          first, then come back and sign in.{" "}
+          <Link href="/how" className="underline underline-offset-4 hover:text-ink">
+            How it works
+          </Link>
+        </p>
       </div>
     </Container>
   );

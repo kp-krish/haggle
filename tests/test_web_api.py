@@ -441,3 +441,18 @@ def test_places_for_the_map(api):
     _, body = call("GET", "/web/places")
     assert set(body["areas"]) == {"north", "central", "south"}
     assert all(33.40 < p["lat"] < 33.43 and -111.95 < p["lng"] < -111.92 for p in body["places"])
+
+
+def test_cancel_booking_from_the_website(api, monkeypatch):
+    monkeypatch.setenv("DEALS_FUNCTION", "haggle-test-deals")
+    put_deal("deal_1", "confirming")
+    with mock.patch("interactions._lambda") as lam:
+        assert call("POST", "/web/deals/deal_1/cancel", user=BUYER)[0] == 409
+        put_deal("deal_1", "confirmed")
+        assert call("POST", "/web/deals/deal_1/cancel", user=STRANGER)[0] == 409
+        status, body = call("POST", "/web/deals/deal_1/cancel", user=BUYER)
+        assert status == 200 and "cancelled" in body["message"]
+        lam.return_value.invoke.assert_called_once()
+    me = call("GET", "/web/me", user=BUYER)[1]
+    assert me["deals"][0]["state"] == "cancelled" and me["deals"][0]["cancelled_by"] == "buyer"
+    assert me["profile"]["stats"]["cancelled"] == 1

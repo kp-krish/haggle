@@ -37,7 +37,7 @@ MAX_PRICE = 10_000
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
 OPEN_LISTING = ("preview", "open")
 OPEN_WANT = ("open",)
-CLOSED_DEAL = ("closed", "stopped", "done", "no_deal", "passed", "no_show")
+CLOSED_DEAL = ("closed", "stopped", "done", "no_deal", "passed", "no_show", "cancelled")
 ACTIVE_DEAL = ("starting", "negotiating", "scheduling", "confirming")
 MAX_NO_SHOWS = 3  # missed pickups before a student is paused from new deals
 
@@ -824,7 +824,64 @@ def press_noshow(interaction: dict, user_id: str, deal_id: str) -> dict:
     return respond(notify.UPDATE_MESSAGE, {"content": message, "components": []})
 
 
-COMMANDS = {"sell": cmd_sell, "want": cmd_want, "deals": cmd_deals, "stop": cmd_stop}
+# ---------- Cancelling a confirmed pickup
+
+
+def cancel_booking(user_id: str, deal_id: str) -> tuple[bool, str]:
+    """Call off a confirmed pickup: (cancelled?, message). The deals function tells the
+    other student and reopens the item (buyer cancelled) or the buyer's search (seller)."""
+    deal, side = _deal_for(deal_id, user_id)
+    if not side:
+        return False, "I couldn't find that booking under your name."
+    try:
+        store.table("deals").update_item(
+            Key={"deal_id": deal_id},
+            UpdateExpression="SET #st = :c, cancelled_by = :side, updated_at = :now",
+            ConditionExpression=Attr("state").eq("confirmed"),
+            ExpressionAttributeNames={"#st": "state"},
+            ExpressionAttributeValues={":c": "cancelled", ":side": side, ":now": store.now_iso()},
+        )
+    except store.conditional_failed():
+        return False, "Only a confirmed pickup can be cancelled, and this one isn't."
+    _bump(user_id, "cancel_count")
+    _lambda().invoke(
+        FunctionName=os.environ["DEALS_FUNCTION"],
+        InvocationType="Event",
+        Payload=json.dumps({"action": "cancelled", "deal_id": deal_id}).encode(),
+    )
+    if side == "seller":
+        return True, "Booking cancelled and your listing taken down. I've let the buyer know."
+    return True, "Booking cancelled. I've let the seller know, and the item is listed again."
+
+
+def bookings(user_id: str) -> list[dict]:
+    return [d for d in open_items(user_id)["deals"] if d.get("state") == "confirmed"]
+
+
+def cmd_cancel(interaction: dict, user_id: str) -> dict:
+    target = _options(interaction)["booking"]["value"].strip()
+    return private(cancel_booking(user_id, target)[1])
+
+
+def autocomplete_cancel(interaction: dict, user_id: str) -> dict:
+    typed = str(_options(interaction).get("booking", {}).get("value", "")).lower()
+    choices = []
+    for d in bookings(user_id):
+        when = format_slot(datetime.fromisoformat(d["slot_start"])) if d.get("slot_start") else ""
+        name = f"{d.get('title', 'Pickup')} — {when}".strip(" —")
+        choices.append({"name": name[:100], "value": d["deal_id"]})
+    choices = [c for c in choices if typed in c["name"].lower() or typed in c["value"].lower()]
+    return respond(notify.AUTOCOMPLETE_RESULT, {"choices": choices[:25]})
+
+
+COMMANDS = {
+    "sell": cmd_sell,
+    "want": cmd_want,
+    "deals": cmd_deals,
+    "stop": cmd_stop,
+    "cancel": cmd_cancel,
+}
+AUTOCOMPLETES = {"stop": autocomplete_stop, "cancel": autocomplete_cancel}
 MODALS = {"sell": submit_sell, "want": submit_want, "limit": submit_limit, "window": submit_window}
 BUTTONS = {
     "publish": press_publish,
@@ -854,8 +911,8 @@ def route(interaction: dict) -> dict:
     data = interaction.get("data", {})
     if kind == COMMAND and data.get("name") in COMMANDS:
         return COMMANDS[data["name"]](interaction, user_id)
-    if kind == AUTOCOMPLETE and data.get("name") == "stop":
-        return autocomplete_stop(interaction, user_id)
+    if kind == AUTOCOMPLETE and data.get("name") in AUTOCOMPLETES:
+        return AUTOCOMPLETES[data["name"]](interaction, user_id)
     if kind in (MODAL_SUBMIT, COMPONENT):
         action, _, target = data.get("custom_id", "").partition(":")
         table = MODALS if kind == MODAL_SUBMIT else BUTTONS

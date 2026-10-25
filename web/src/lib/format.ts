@@ -36,8 +36,18 @@ export function since(iso: string): string {
 }
 
 /** How a deal's state reads to the student, and what colour it gets. */
-export function dealStatus(state: string, pickup?: string): { label: string; tone: Tone } {
+export function dealStatus(
+  state: string,
+  pickup?: string,
+  cancelled?: { by?: "seller" | "buyer"; side: "seller" | "buyer" },
+): { label: string; tone: Tone } {
   switch (state) {
+    case "cancelled":
+      if (!cancelled?.by) return { label: "Pickup cancelled", tone: "bad" };
+      return {
+        label: cancelled.by === cancelled.side ? "You cancelled the pickup" : `The ${cancelled.by} cancelled the pickup`,
+        tone: "bad",
+      };
     case "proposed":
       return { label: "Waiting for you to start, in Discord", tone: "live" };
     case "starting":

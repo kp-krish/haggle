@@ -18,6 +18,7 @@ def stats(user: dict | None) -> dict[str, int]:
         "as_seller": int(user.get("done_as_seller", 0)),
         "as_buyer": int(user.get("done_as_buyer", 0)),
         "no_shows": int(user.get("no_show_count", 0)),
+        "cancelled": int(user.get("cancel_count", 0)),
     }
 
 

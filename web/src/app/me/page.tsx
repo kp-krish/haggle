@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { stopDeal, stopListing } from "@/app/actions";
+import { cancelBooking, stopDeal, stopListing } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { CampusMap } from "@/components/campus-map-lazy";
@@ -36,6 +36,7 @@ export default async function MePage() {
                 <Trust badges={profile.badges} /> · {stats.pickups} completed pickup{stats.pickups === 1 ? "" : "s"}{" "}
                 ({stats.as_seller} selling, {stats.as_buyer} buying)
                 {stats.no_shows > 0 && ` · ${stats.no_shows} missed`}
+                {stats.cancelled > 0 && ` · ${stats.cancelled} cancelled`}
               </>
             }
           >
@@ -54,6 +55,9 @@ export default async function MePage() {
               <p>{nextPickup.pickup}</p>
               {nextPickup.agreed_price !== undefined && <Price amount={nextPickup.agreed_price} className="text-lg" />}
               <p className="text-sm text-muted">Pay in person. A reminder arrives in Discord an hour before.</p>
+              <div className="pt-2">
+                <CancelBooking deal={nextPickup} />
+              </div>
             </div>
             <div className="relative h-64 border border-line">
               <CampusMap areas={places.areas} places={places.places} mode="pickup" spotId={nextPickup.place_id} />
@@ -118,7 +122,7 @@ function DealList({ deals }: { deals: Deal[] }) {
   return (
     <ul className="border-t border-line">
       {deals.map((d) => {
-        const s = dealStatus(d.state, d.pickup);
+        const s = dealStatus(d.state, d.pickup, { by: d.cancelled_by, side: d.side });
         return (
           <li key={d.deal_id} className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-b border-line py-3">
             <div className="min-w-0 flex-1">
@@ -136,9 +140,26 @@ function DealList({ deals }: { deals: Deal[] }) {
                 Stop
               </ActionButton>
             )}
+            {d.state === "confirmed" && <CancelBooking deal={d} />}
           </li>
         );
       })}
     </ul>
+  );
+}
+
+function CancelBooking({ deal }: { deal: Deal }) {
+  const other = deal.side === "seller" ? "buyer" : "seller";
+  const after = deal.side === "seller" ? "Your listing comes down." : "The item goes back on sale.";
+  return (
+    <ActionButton
+      action={cancelBooking.bind(null, deal.deal_id)}
+      variant="quiet"
+      confirm={`Cancel this pickup? The ${other} is told in Discord. ${after}`}
+      confirmLabel="Yes, cancel it"
+      pendingLabel="Cancelling…"
+    >
+      Cancel booking
+    </ActionButton>
   );
 }

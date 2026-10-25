@@ -89,6 +89,19 @@ COMMANDS = [
             }
         ],
     },
+    {
+        "name": "cancel",
+        "description": "Cancel a confirmed pickup. The other student is told right away.",
+        "options": [
+            {
+                "type": STRING,
+                "name": "booking",
+                "description": "Which pickup (start typing)",
+                "required": True,
+                "autocomplete": True,
+            }
+        ],
+    },
 ]
 
 

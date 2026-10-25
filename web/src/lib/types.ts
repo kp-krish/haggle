@@ -31,13 +31,14 @@ export type Deal = {
   pickup?: string;
   place_id?: string;
   spot_name?: string;
+  cancelled_by?: "seller" | "buyer";
   created_at: string;
   source?: string;
 };
 
 export type Profile = {
   badges: Badge[];
-  stats: { pickups: number; as_seller: number; as_buyer: number; no_shows: number };
+  stats: { pickups: number; as_seller: number; as_buyer: number; no_shows: number; cancelled: number };
   area: string;
   windows: string;
   style: string;

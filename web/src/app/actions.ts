@@ -82,6 +82,15 @@ export async function stopDeal(dealId: string) {
   revalidatePath("/me");
 }
 
+export async function cancelBooking(dealId: string) {
+  try {
+    await api("POST", `/web/deals/${dealId}/cancel`);
+  } catch (e) {
+    return failure(e);
+  }
+  revalidatePath("/me");
+}
+
 export async function expressInterest(
   listingId: string,
   _prev: FormState,

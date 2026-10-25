@@ -278,6 +278,69 @@ def test_no_show_relists_and_offers_item_to_earlier_buyer(world, monkeypatch):
     assert user == OTHER_BUYER and "available again" in payload["content"]
 
 
+def cancel(user, deal_id="deal_1"):
+    event = {
+        "type": interactions.COMMAND,
+        "application_id": "app",
+        "token": "tok",
+        "user": {"id": user},
+        "data": {"name": "cancel", "options": [{"name": "booking", "value": deal_id}]},
+    }
+    return json.loads(interactions.route(event)["body"])["data"]["content"]
+
+
+def test_cancel_autocomplete_lists_only_confirmed_pickups(world, monkeypatch):
+    confirmed_deal(monkeypatch)
+    event = {
+        "type": interactions.AUTOCOMPLETE,
+        "user": {"id": BUYER},
+        "data": {"name": "cancel", "options": [{"name": "booking", "value": ""}]},
+    }
+    choices = json.loads(interactions.route(event)["body"])["data"]["choices"]
+    assert [c["value"] for c in choices] == ["deal_1"]
+
+
+def test_buyer_cancel_relists_and_tells_seller(world, monkeypatch):
+    confirmed_deal(monkeypatch)
+    assert "listed again" in cancel(BUYER)
+    d = deal()
+    assert d["state"] == "cancelled" and d["cancelled_by"] == "buyer"
+    assert store.table("users").get_item(Key={"user_id": BUYER})["Item"]["cancel_count"] == 1
+    payload = json.loads(world["ilambda"].invoke.call_args.kwargs["Payload"])
+    assert payload == {"action": "cancelled", "deal_id": "deal_1"}
+
+    deals.cancelled("deal_1")
+    told = [(u, t) for u, t in sent(world["dm"]) if "cancelled the pickup" in t]
+    assert told == [(SELLER, told[0][1])] and f"<name {BUYER}>" in told[0][1]
+    assert store.table("listings").get_item(Key={"listing_id": "lst_1"})["Item"]["status"] == "open"
+    # The buyer called it off, so their search stays closed.
+    assert store.table("wants").get_item(Key={"want_id": "wnt_1"})["Item"]["status"] == "fulfilled"
+    # No reminder after a cancellation.
+    before = world["dm"].call_count
+    deals.remind("deal_1")
+    assert world["dm"].call_count == before
+
+
+def test_seller_cancel_takes_listing_down_and_reopens_search(world, monkeypatch):
+    confirmed_deal(monkeypatch)
+    assert "taken down" in cancel(SELLER)
+    deals.cancelled("deal_1")
+    assert sent(world["dm"])[-1][0] == BUYER
+    listing = store.table("listings").get_item(Key={"listing_id": "lst_1"})["Item"]
+    assert listing["status"] == "stopped"
+    assert store.table("wants").get_item(Key={"want_id": "wnt_1"})["Item"]["status"] == "open"
+
+
+def test_only_confirmed_pickups_of_your_own_can_be_cancelled(world, monkeypatch):
+    agree(setup_deal(), monkeypatch)  # still confirming
+    assert "Only a confirmed pickup" in cancel(BUYER)
+    deals.finalize("deal_1", own_arn="arn:fn")
+    assert "couldn't find" in cancel(OTHER_BUYER)
+    cancel(BUYER)
+    assert "Only a confirmed pickup" in cancel(SELLER)  # already cancelled
+    world["ilambda"].invoke.assert_called_once()
+
+
 def test_repeated_no_shows_pause_new_deals(world):
     store.table("users").put_item(Item={"user_id": BUYER, "no_show_count": 3})
     event = {

@@ -260,7 +260,8 @@ def finalize(deal_id: str, own_arn: str | None = None) -> dict:
     # Identities are revealed only now, after both students confirmed.
     done = (
         f"**Deal confirmed:** {deal.get('title', 'the item')} for ${deal['agreed_price']}. "
-        f"{pickup_line(deal)}. Pay in person at pickup; Haggle never handles money."
+        f"{pickup_line(deal)}. Pay in person at pickup; Haggle never handles money.\n"
+        "Can't make it? Use `/cancel` here or Cancel booking on the website."
     )
     buyer, seller = notify.display_name(deal["buyer_id"]), notify.display_name(deal["seller_id"])
     notify.dm(deal["seller_id"], {"content": f"{done}\nThe buyer is {buyer}."})
@@ -400,10 +401,47 @@ def handoff(deal_id: str) -> None:
     )
 
 
-def reopen(deal_id: str) -> None:
+def cancelled(deal_id: str) -> None:
+    """A confirmed pickup was called off (interactions.cancel_booking set the state)."""
+    deal = _deal(deal_id)
+    by = deal.get("cancelled_by")
+    if deal.get("state") != "cancelled" or by not in ("seller", "buyer"):
+        return
+    other = "buyer" if by == "seller" else "seller"
+    title = deal.get("title", "the item")
+    notify.dm(
+        deal[f"{other}_id"],
+        {
+            "content": f"**Haggle:** {notify.display_name(deal[f'{by}_id'])} cancelled the "
+            f"pickup for **{title}**. Sorry about that."
+        },
+    )
+    if by == "buyer":
+        # The seller still wants to sell: relist and ask earlier buyers again.
+        reopen(deal_id, reopen_want=False)
+        return
+    # The seller backed out, so the item comes down and the buyer's agent keeps looking.
+    try:
+        store.table("listings").update_item(
+            Key={"listing_id": deal["listing_id"]},
+            UpdateExpression="SET #s = :stopped",
+            ConditionExpression=Attr("status").eq("sold") & Attr("sold_deal").eq(deal_id),
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={":stopped": "stopped"},
+        )
+    except store.conditional_failed():
+        pass
+    want = store.table("wants").get_item(Key={"want_id": deal["want_id"]}).get("Item") or {}
+    # Interest from the website names one listing; only a general /want keeps searching.
+    if not want.get("listing_id"):
+        _set_status("wants", {"want_id": deal["want_id"]}, "open", expect="fulfilled")
+
+
+def reopen(deal_id: str, reopen_want: bool = True) -> None:
     """A pickup didn't happen: relist the item and give earlier buyers another chance."""
     deal = _deal(deal_id)
-    _set_status("wants", {"want_id": deal["want_id"]}, "open", expect="fulfilled")
+    if reopen_want:
+        _set_status("wants", {"want_id": deal["want_id"]}, "open", expect="fulfilled")
     try:
         store.table("listings").update_item(
             Key={"listing_id": deal["listing_id"]},
@@ -487,6 +525,8 @@ def handler(event: dict, context):
         return remind(deal_id)
     if action == "handoff":
         return handoff(deal_id)
+    if action == "cancelled":
+        return cancelled(deal_id)
     if action == "reopen":
         return reopen(deal_id)
     raise ValueError(f"unknown action {action}")
