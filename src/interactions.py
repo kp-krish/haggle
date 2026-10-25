@@ -554,6 +554,43 @@ def _answer_confirm(user_id: str, deal_id: str, confirmed: bool) -> dict:
     return respond(notify.UPDATE_MESSAGE, {"content": content, "components": []})
 
 
+def _answer_final(user_id: str, deal_id: str, accepted: bool) -> dict:
+    """The buyer's answer to the seller's final offer after the rounds ran out."""
+    deal, side = _deal_for(deal_id, user_id)
+    token = deal.get("final_token") if deal and side == "buyer" else None
+    if not token or deal.get("state") != "negotiating":
+        return respond(
+            notify.UPDATE_MESSAGE, {"content": "This offer has expired.", "components": []}
+        )
+    try:
+        if accepted:
+            _sfn().send_task_success(taskToken=token, output=json.dumps({"accepted": True}))
+        else:
+            _sfn().send_task_failure(taskToken=token, error="Declined", cause="buyer")
+    except Exception:
+        log.exception("final-ask token for %s rejected", deal_id)
+        return respond(
+            notify.UPDATE_MESSAGE, {"content": "This offer has expired.", "components": []}
+        )
+    store.table("deals").update_item(
+        Key={"deal_id": deal_id}, UpdateExpression="REMOVE final_token"
+    )
+    content = (
+        f"Accepted ${deal['last_offer_seller']}. You'll both confirm next."
+        if accepted
+        else "No problem. I'll keep looking for other matches."
+    )
+    return respond(notify.UPDATE_MESSAGE, {"content": content, "components": []})
+
+
+def press_final_yes(interaction: dict, user_id: str, deal_id: str) -> dict:
+    return _answer_final(user_id, deal_id, True)
+
+
+def press_final_no(interaction: dict, user_id: str, deal_id: str) -> dict:
+    return _answer_final(user_id, deal_id, False)
+
+
 def press_confirm(interaction: dict, user_id: str, deal_id: str) -> dict:
     return _answer_confirm(user_id, deal_id, True)
 
@@ -649,6 +686,8 @@ BUTTONS = {
     "pass": press_pass,
     "confirm": press_confirm,
     "decline": press_decline,
+    "final_yes": press_final_yes,
+    "final_no": press_final_no,
     "stop": press_stop,
     "limit": press_limit,
 }

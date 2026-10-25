@@ -11,9 +11,12 @@ the move, let the model word it, check the words with guard.py, record and mirro
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
+from functools import cache
 
+import boto3
 from boto3.dynamodb.conditions import Attr
 
 import guard
@@ -27,6 +30,10 @@ log.setLevel(logging.INFO)
 
 OFFER_TTL_SECONDS = 30 * 24 * 3600 + 7 * 24 * 3600  # 30 days after a deal closes, roughly
 LABEL = {"seller": "Seller's agent", "buyer": "Buyer's agent"}
+# When rounds run out, the buyer is asked about the seller's final offer if it is within
+# 25% (or $5) of their max; further apart than that isn't worth a question.
+FINAL_ASK_FRACTION = 0.25
+FINAL_ASK_MIN_DOLLARS = 5
 # Every reply has the same keys; the state machine's ResultSelector needs them all.
 STOPPED = {"action": "stopped", "price": None, "next": None}
 TONE = {
@@ -140,7 +147,13 @@ def take_turn(deal_id: str, t: int, side: str) -> dict:
         int(their_offer) if their_offer is not None else None,
         int(own_last) if own_last is not None else None,
     )
-    text = write_message(deal, side, me.style, move.action, move.amount)
+    # A walk-away is not announced here: the buyer may still get a final ask, and if
+    # not, the workflow's "no deal" message tells both students.
+    text = (
+        ""
+        if move.action == "walk"
+        else write_message(deal, side, me.style, move.action, move.amount)
+    )
 
     store.table("offers").put_item(
         Item={
@@ -170,7 +183,8 @@ def take_turn(deal_id: str, t: int, side: str) -> dict:
     except store.conditional_failed():
         return STOPPED  # stopped while we were thinking
 
-    mirror(deal, side, text)
+    if text:
+        mirror(deal, side, text)
     next_t = t + 1 if side == "buyer" else t
     return {
         "action": move.action,
@@ -179,8 +193,62 @@ def take_turn(deal_id: str, t: int, side: str) -> dict:
     }
 
 
-def handler(event: dict, context) -> dict:
+def final_ask_reach(ceiling: int) -> int:
+    """How far above their max a buyer is still asked about the seller's final offer."""
+    return max(FINAL_ASK_MIN_DOLLARS, math.ceil(ceiling * FINAL_ASK_FRACTION))
+
+
+@cache
+def _sfn():
+    return boto3.client("stepfunctions")
+
+
+def final_ask(deal_id: str, token: str) -> None:
+    """Rounds ran out. Ask the buyer, privately, whether to take the seller's final offer.
+
+    Runs inside the buyer's negotiator because only it may know the buyer's max; the
+    gap never enters the workflow's history. If there is nothing worth asking, the
+    task fails straight away and the workflow ends with "no deal".
+    """
+    deal = store.table("deals").get_item(Key={"deal_id": deal_id})["Item"]
+    final = deal.get("last_offer_seller")
+    if deal.get("state") != "negotiating" or final is None:
+        _sfn().send_task_failure(taskToken=token, error="NoFinalAsk", cause="not negotiating")
+        return
+    final = int(final)
+    ceiling = load_side(deal, "buyer").limit
+    if final <= ceiling or final - ceiling > final_ask_reach(ceiling):
+        _sfn().send_task_failure(taskToken=token, error="NoFinalAsk", cause="out of reach")
+        return
+
+    store.table("deals").update_item(
+        Key={"deal_id": deal_id},
+        UpdateExpression="SET final_token = :t",
+        ExpressionAttributeValues={":t": token},
+    )
+    notify.dm(
+        deal["buyer_id"],
+        {
+            "content": f"We ran out of rounds. The seller's final offer for "
+            f"**{deal.get('title', 'the item')}** is **${final}**, which is "
+            f"${final - ceiling} more than your max of ${ceiling}. Take the deal at "
+            f"${final}? The seller still confirms before anything is final.",
+            "components": [
+                notify.row(
+                    notify.button(f"Accept ${final}", f"final_yes:{deal_id}", notify.SUCCESS),
+                    notify.button("No thanks", f"final_no:{deal_id}", notify.SECONDARY),
+                )
+            ],
+        },
+    )
+
+
+def handler(event: dict, context) -> dict | None:
     side = _side()
     if event.get("side", side) != side:
         raise PermissionError(f"{side} negotiator asked to act for {event.get('side')}")
+    if event.get("action") == "final_ask":
+        if side != "buyer":
+            raise PermissionError("only the buyer's negotiator makes a final ask")
+        return final_ask(event["deal_id"], event["token"])
     return take_turn(event["deal_id"], int(event["t"]), side)

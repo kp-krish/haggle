@@ -345,3 +345,88 @@ def test_display_name_spells_out_the_name_for_dms():
         assert notify.display_name("42") == "**Krish** (@krish123, <@42>)"
     with mock.patch("notify._request", side_effect=RuntimeError("discord down")):
         assert notify.display_name("42") == "<@42>"
+
+
+# ---------- final ask when rounds run out
+
+
+def test_one_dollar_gap_ends_in_a_private_final_ask(dms, monkeypatch):
+    dm, model, _ = dms
+    turn = run(setup_deal(floor=35, ceiling=34), monkeypatch)
+    assert turn["action"] == "walk"
+    # The walk-away itself is silent: no "too far apart" line before the final ask.
+    assert not any("Too far apart" in text for _, text in sent(dm))
+
+    monkeypatch.setenv("SIDE", "buyer")
+    with mock.patch("negotiator._sfn") as sfn:
+        negotiator.handler(
+            {"action": "final_ask", "deal_id": "deal_1", "side": "buyer", "token": "tok-f"}, None
+        )
+    sfn.return_value.send_task_failure.assert_not_called()
+    user, text = sent(dm)[-1]
+    assert user == BUYER
+    assert "$35" in text and "$1 more than your max of $34" in text
+    assert (
+        store.table("deals").get_item(Key={"deal_id": "deal_1"})["Item"]["final_token"] == "tok-f"
+    )
+    # The seller was told nothing about the buyer's max.
+    assert not any("$34" in t and "max" in t for u, t in sent(dm) if u == SELLER)
+
+
+def test_final_ask_skipped_when_far_apart(dms, monkeypatch):
+    dm, _, _ = dms
+    run(setup_deal(floor=60, ceiling=40), monkeypatch)
+    before = len(dm.call_args_list)
+    monkeypatch.setenv("SIDE", "buyer")
+    with mock.patch("negotiator._sfn") as sfn:
+        negotiator.handler(
+            {"action": "final_ask", "deal_id": "deal_1", "side": "buyer", "token": "tok-f"}, None
+        )
+    sfn.return_value.send_task_failure.assert_called_once_with(
+        taskToken="tok-f", error="NoFinalAsk", cause="out of reach"
+    )
+    assert len(dm.call_args_list) == before
+
+
+def test_seller_negotiator_cannot_make_a_final_ask(monkeypatch):
+    monkeypatch.setenv("SIDE", "seller")
+    with pytest.raises(PermissionError):
+        negotiator.handler(
+            {"action": "final_ask", "deal_id": "d", "side": "seller", "token": "t"}, None
+        )
+
+
+def test_final_ask_reach():
+    assert negotiator.final_ask_reach(10) == 5  # small items: at least $5
+    assert negotiator.final_ask_reach(100) == 25
+
+
+def test_buyer_accepts_final_offer_and_both_confirm(sfn, dms, monkeypatch):
+    dm, _, _ = dms
+    run(setup_deal(floor=35, ceiling=34), monkeypatch)
+    monkeypatch.setenv("SIDE", "buyer")
+    with mock.patch("negotiator._sfn"):
+        negotiator.handler(
+            {"action": "final_ask", "deal_id": "deal_1", "side": "buyer", "token": "tok-f"}, None
+        )
+    assert "expired" in press(SELLER, "final_yes:deal_1")["data"]["content"]
+    assert "Accepted $35" in press(BUYER, "final_yes:deal_1")["data"]["content"]
+    sfn.send_task_success.assert_called_once_with(taskToken="tok-f", output='{"accepted": true}')
+
+    # The workflow then records the seller agent's own final offer as the price.
+    deals.handler({"action": "agreed", "deal_id": "deal_1"}, None)
+    deal = store.table("deals").get_item(Key={"deal_id": "deal_1"})["Item"]
+    assert deal["state"] == "confirming" and deal["agreed_price"] == 35
+
+
+def test_buyer_declines_final_offer(sfn, dms, monkeypatch):
+    run(setup_deal(floor=35, ceiling=34), monkeypatch)
+    monkeypatch.setenv("SIDE", "buyer")
+    with mock.patch("negotiator._sfn"):
+        negotiator.handler(
+            {"action": "final_ask", "deal_id": "deal_1", "side": "buyer", "token": "tok-f"}, None
+        )
+    assert "keep looking" in press(BUYER, "final_no:deal_1")["data"]["content"]
+    sfn.send_task_failure.assert_called_once_with(
+        taskToken="tok-f", error="Declined", cause="buyer"
+    )

@@ -82,7 +82,7 @@
       "Choices": [
         { "Variable": "$.turn.action", "StringEquals": "offer", "Next": "Pause" },
         { "Variable": "$.turn.action", "StringEquals": "accept", "Next": "Agreed" },
-        { "Variable": "$.turn.action", "StringEquals": "walk", "Next": "NoDeal" }
+        { "Variable": "$.turn.action", "StringEquals": "walk", "Next": "FinalAsk" }
       ],
       "Default": "Stopped"
     },
@@ -96,6 +96,36 @@
       "Type": "Pass",
       "Parameters": { "deal_id.$": "$.deal_id", "next.$": "$.turn.next" },
       "Next": "WhoseTurn"
+    },
+    "FinalAsk": {
+      "Type": "Task",
+      "Comment": "Rounds ran out: the buyer's own agent asks its student about the seller's final offer. Fails fast (NoFinalAsk) when it is out of reach.",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${BuyerNegotiatorArn}",
+        "Payload": {
+          "action": "final_ask",
+          "deal_id.$": "$.deal_id",
+          "side": "buyer",
+          "token.$": "$$.Task.Token"
+        }
+      },
+      "TimeoutSeconds": 7200,
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "NoDeal" }],
+      "Next": "FinalAgreed"
+    },
+    "FinalAgreed": {
+      "Type": "Task",
+      "Comment": "Price is the seller agent's own final offer, read from the deal.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${DealsFunctionArn}",
+        "Payload": { "action": "agreed", "deal_id.$": "$.deal_id" }
+      },
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "Failed" }],
+      "Next": "Confirm"
     },
     "Agreed": {
       "Type": "Task",

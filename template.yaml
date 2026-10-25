@@ -175,6 +175,10 @@ Resources:
                   kms:EncryptionContext:record: "want#*"
                 StringEquals:
                   kms:EncryptionContext:purpose: price-limit
+            # Final ask: ends its own wait when there is nothing worth asking.
+            - Effect: Allow
+              Action: states:SendTaskFailure
+              Resource: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:haggle-${Stage}-negotiation
         - DynamoDBReadPolicy: { TableName: !Ref WantsTable }
         - DynamoDBCrudPolicy: { TableName: !Ref DealsTable }
         - DynamoDBCrudPolicy: { TableName: !Ref OffersTable }

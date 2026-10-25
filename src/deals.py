@@ -218,7 +218,11 @@ def handler(event: dict, context):
     if action == "start":
         return start(deal_id)
     if action == "agreed":
-        return agreed(deal_id, int(event["price"]))
+        # Without a price this is the buyer saying yes to the seller's final offer.
+        price = event.get("price")
+        if price is None:
+            price = _deal(deal_id)["last_offer_seller"]
+        return agreed(deal_id, int(price))
     if action == "request_confirm":
         return request_confirm(deal_id, event["side"], event["token"])
     if action == "finalize":
