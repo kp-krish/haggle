@@ -149,8 +149,13 @@ def on_want_open(want: dict) -> int:
 
 
 def _image(record: dict, which: str) -> dict:
+    """Decode a stream image, dropping binary attributes (the encrypted limits).
+
+    Streams deliver binary as base64 text, which TypeDeserializer rejects; the matcher
+    has no use for ciphertext anyway, so it never even holds it.
+    """
     raw = record.get("dynamodb", {}).get(which) or {}
-    return {k: _deserialize(v) for k, v in raw.items()}
+    return {k: _deserialize(v) for k, v in raw.items() if "B" not in v and "BS" not in v}
 
 
 def handler(event: dict, context) -> dict:

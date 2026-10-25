@@ -111,6 +111,14 @@ def test_new_listing_asks_matching_buyer_once(dm):
     assert dm.call_count == 1
 
 
+def test_stream_images_with_encrypted_limits_are_handled(dm):
+    # Real streams carry the encrypted ceiling as base64 text under "B".
+    store.table("listings").put_item(Item=FRIDGE)
+    event = stream_event(FRIDGE_WANT)
+    event["Records"][0]["dynamodb"]["NewImage"]["ceiling_enc"] = {"B": "AQIDBA=="}
+    assert matcher.handler(event, None) == {"proposed": 1}
+
+
 def test_new_want_finds_existing_listing(dm):
     store.table("listings").put_item(Item=FRIDGE)
     event = stream_event(FRIDGE_WANT, old={**FRIDGE_WANT, "status": "processing"})
